@@ -4,7 +4,7 @@
 
 ## 功能特点
 
-- ✅ 多配置管理（anyrouter, seed, xiaomi, zhongan 等）
+- ✅ 多配置管理（anyrouter, seed, xiaomi 等）
 - ✅ Common + Option 配置合并（Option 优先级更高）
 - ✅ Token 脱敏显示（保护敏感信息）
 - ✅ 环境变量自动设置
@@ -31,7 +31,6 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 .\ccode.ps1 xiaomi
 .\ccode.ps1 seed
 .\ccode.ps1 anyrouter
-.\ccode.ps1 zhongan
 ```
 
 ### Bash 版本（macOS/Linux）
@@ -47,7 +46,6 @@ chmod +x ccode.sh
 ./ccode.sh xiaomi
 ./ccode.sh seed
 ./ccode.sh anyrouter
-./ccode.sh zhongan
 ```
 
 ## 配置文件格式 (`ccode_config.yaml`)
@@ -70,10 +68,6 @@ options:
     ANTHROPIC_BASE_URL: "https://ark.cn-beijing.volces.com/api/compatible"
     API_TIMEOUT_MS: "3000000"
     ANTHROPIC_MODEL: "doubao-seed-code-preview-251028"
-
-  zhongan:
-    ANTHROPIC_AUTH_TOKEN: "xxx"
-    ANTHROPIC_BASE_URL: "http://devpilot.zhonganonline.com/devpilot/v1/external/direct/claudecode"
 
 common:
   CLAUDE_CODE_ENABLE_TELEMETRY: 0
@@ -103,7 +97,6 @@ Claude Code 启动工具
   anyrouter
   seed
 * xiaomi
-  zhongan
 
 最终环境变量:
  ANTHROPIC_AUTH_TOKEN = sk-********************
