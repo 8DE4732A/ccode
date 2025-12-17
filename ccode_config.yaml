@@ -1,0 +1,21 @@
+options:
+  anyrouter:
+    ANTHROPIC_AUTH_TOKEN: "***"
+    ANTHROPIC_BASE_URL: "https://anyrouter.top"
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
+  seed:
+    ANTHROPIC_AUTH_TOKEN: "***"
+    ANTHROPIC_BASE_URL: "https://ark.cn-beijing.volces.com/api/compatible"
+    API_TIMEOUT_MS: "3000000"
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
+    ANTHROPIC_MODEL: "doubao-seed-code-preview-251028"
+  xiaomi:
+    ANTHROPIC_BASE_URL: "https://api.xiaomimimo.com/anthropic"
+    ANTHROPIC_AUTH_TOKEN: "***"
+    ANTHROPIC_DEFAULT_OPUS_MODEL: "mimo-v2-flash"
+    ANTHROPIC_DEFAULT_SONNET_MODEL: "mimo-v2-flash"
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: "mimo-v2-flash"
+common:
+  CLAUDE_CODE_ENABLE_TELEMETRY: 0
+  DISABLE_COST_WARNINGS: 1
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
