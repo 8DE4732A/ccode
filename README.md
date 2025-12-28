@@ -9,6 +9,7 @@
 - ✅ Token 脱敏显示（保护敏感信息）
 - ✅ 环境变量自动设置
 - ✅ 彩色输出，显示当前激活配置
+- ✅ 支持传递额外参数给 claude 命令（如 `--chrome`）
 
 ## 文件说明
 
@@ -31,6 +32,10 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 .\ccode.ps1 xiaomi
 .\ccode.ps1 seed
 .\ccode.ps1 anyrouter
+
+# 4. 传递额外参数给 claude 命令
+.\ccode.ps1 anyrouter --chrome
+.\ccode.ps1 anyrouter --chrome --dangerously-skip-permissions
 ```
 
 ### Bash 版本（macOS/Linux）
@@ -46,6 +51,10 @@ chmod +x ccode.sh
 ./ccode.sh xiaomi
 ./ccode.sh seed
 ./ccode.sh anyrouter
+
+# 4. 传递额外参数给 claude 命令
+./ccode.sh anyrouter --chrome
+./ccode.sh anyrouter --chrome --dangerously-skip-permissions
 ```
 
 ## 配置文件格式 (`ccode_config.yaml`)
@@ -113,6 +122,7 @@ Claude Code 启动工具
 环境变量设置完成
 
 正在启动 claude 命令...
+附加参数: --chrome
 ```
 
 ## 工作原理

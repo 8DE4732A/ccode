@@ -1,7 +1,9 @@
 #!/usr/bin/env pwsh
 
 param(
-    [string]$Option = ""
+    [string]$Option = "",
+    [Parameter(ValueFromRemainingArguments=$true)]
+    [string[]]$ClaudeArgs
 )
 
 # 设置控制台输出编码为 UTF-8
@@ -153,8 +155,15 @@ try {
     Set-EnvironmentVariables -Variables $finalEnv
     # 启动 claude 命令
     Write-Host "正在启动 claude 命令..." -ForegroundColor Green
+    if ($ClaudeArgs -and $ClaudeArgs.Count -gt 0) {
+        Write-Host "附加参数: $($ClaudeArgs -join ' ')" -ForegroundColor Yellow
+    }
     Write-Host ""
-    & claude
+    if ($ClaudeArgs -and $ClaudeArgs.Count -gt 0) {
+        & claude @ClaudeArgs
+    } else {
+        & claude
+    }
 } catch {
     Write-Error "执行过程中发生错误: $($_.Exception.Message)"
     exit 1

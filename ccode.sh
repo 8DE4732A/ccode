@@ -2,6 +2,8 @@
 
 # 处理参数
 OPTION="$1"
+shift 2>/dev/null || true
+CLAUDE_ARGS=("$@")
 
 # 获取配置文件路径
 get_config_path() {
@@ -227,12 +229,15 @@ main() {
     echo -e "\033[32m环境变量设置完成\033[0m"
     echo ""
     echo -e "\033[32m正在启动 claude 命令...\033[0m"
+    if [[ ${#CLAUDE_ARGS[@]} -gt 0 ]]; then
+        echo -e "\033[33m附加参数:\033[0m ${CLAUDE_ARGS[*]}"
+    fi
     echo ""
 
     # 验证环境变量（可选调试）
     # echo "验证 ANTHROPIC_BASE_URL: $ANTHROPIC_BASE_URL"
 
-    claude
+    claude "${CLAUDE_ARGS[@]}"
 }
 
 # 运行主函数
