@@ -1,161 +1,86 @@
-# Claude Code 启动工具
+# CCode Launcher (Curses UI)
 
-这是一个简单的启动工具，用于快速切换和管理不同的 Claude Code 配置。支持 PowerShell 和 Bash 两种脚本。
+这是一个基于 curses 的 Claude Code 启动器，提供键盘全操作的终端界面，用于配置 Base URL、API Key、模型选择和常用开关，并直接启动 `claude` 命令。
+
+工具的目的是方便启动claude code时快速选择想要使用的模型。模型网关可以使用litellm proxy 或者 CLI Proxy API
 
 ## 功能特点
 
-- ✅ 多配置管理（anyrouter, seed, xiaomi 等）
-- ✅ Common + Option 配置合并（Option 优先级更高）
-- ✅ Token 脱敏显示（保护敏感信息）
-- ✅ 环境变量自动设置
-- ✅ 彩色输出，显示当前激活配置
-- ✅ 支持传递额外参数给 claude 命令（如 `--chrome`）
+- 终端 curses UI，键盘全操作
+- 主界面选择 OPUS / SONNET / HAIKU 的 owned_by 与 model_id
+- 配置界面编辑 Base URL / API Key 与常用开关
+- 自动保存配置到 `~/.ccode/config.json`
+- 直接启动 `claude` 并传递额外参数
+- 动画 Logo（颜色渐变 / 流光 / 轻微波浪）
 
-## 文件说明
+## 依赖
 
-- `ccode.ps1` - PowerShell 版本（Windows 推荐）
-- `ccode.sh` - Bash 版本（macOS/Linux 推荐，兼容 bash 3）
-- `ccode_config.yaml` - 配置文件
+- Python 3（标准库，无第三方依赖）
 
-## 安装和使用
-
-### PowerShell 版本（Windows）
-
-```powershell
-# 1. 设置执行权限（如果需要）
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-
-# 2. 运行（使用默认配置/第一个配置）
-.\ccode.ps1
-
-# 3. 指定配置运行
-.\ccode.ps1 xiaomi
-.\ccode.ps1 seed
-.\ccode.ps1 anyrouter
-
-# 4. 传递额外参数给 claude 命令
-.\ccode.ps1 anyrouter --chrome
-.\ccode.ps1 anyrouter --chrome --dangerously-skip-permissions
-```
-
-### Bash 版本（macOS/Linux）
+## 运行方式
 
 ```bash
-# 1. 赋予执行权限
-chmod +x ccode.sh
-
-# 2. 运行（使用默认配置/第一个配置）
-./ccode.sh
-
-# 3. 指定配置运行
-./ccode.sh xiaomi
-./ccode.sh seed
-./ccode.sh anyrouter
-
-# 4. 传递额外参数给 claude 命令
-./ccode.sh anyrouter --chrome
-./ccode.sh anyrouter --chrome --dangerously-skip-permissions
+python ccode.py
 ```
 
-## 配置文件格式 (`ccode_config.yaml`)
+传递额外参数给 `claude`：
 
-```yaml
-options:
-  anyrouter:
-    ANTHROPIC_AUTH_TOKEN: "sk-xxx"
-    ANTHROPIC_BASE_URL: "https://anyrouter.top"
-
-  xiaomi:
-    ANTHROPIC_AUTH_TOKEN: "sk-xxx"
-    ANTHROPIC_BASE_URL: "https://api.xiaomimimo.com/anthropic"
-    ANTHROPIC_DEFAULT_OPUS_MODEL: "mimo-v2-flash"
-    ANTHROPIC_DEFAULT_SONNET_MODEL: "mimo-v2-flash"
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: "mimo-v2-flash"
-
-  seed:
-    ANTHROPIC_AUTH_TOKEN: "xxx"
-    ANTHROPIC_BASE_URL: "https://ark.cn-beijing.volces.com/api/compatible"
-    API_TIMEOUT_MS: "3000000"
-    ANTHROPIC_MODEL: "doubao-seed-code-preview-251028"
-
-common:
-  CLAUDE_CODE_ENABLE_TELEMETRY: 0
-  DISABLE_COST_WARNINGS: 1
+```bash
+python ccode.py --chrome
 ```
 
-## 配置说明
+## 快捷键（主界面）
 
-### Options 部分
-定义不同的配置方案，每个方案有自己的环境变量。必需字段：
-- `ANTHROPIC_AUTH_TOKEN` - API 认证令牌
-- `ANTHROPIC_BASE_URL` - API 服务地址
+- `↑ / ↓`：切换 OPUS / SONNET / HAIKU 行
+- `← / →`：切换 owned_by / model_id 字段
+- `a / d`：循环切换当前字段的可选项
+- `b`：刷新模型列表
+- `c`：进入配置界面
+- `Enter`：校验并启动 `claude`
+- `q`：退出
 
-### Common 部分
-定义所有配置共享的环境变量，会被 options 中的配置覆盖。
+> 提示：首次使用需要先在配置界面设置 Base URL 与 API Key，然后返回主界面按 `b` 获取模型列表。
 
-## 输出示例
+## 快捷键（配置界面）
+
+- `↑ / ↓`：移动字段焦点
+- `Enter / Space`：切换开关项
+- 文本输入：编辑 BASE_URL / API_KEY
+- `ESC`：自动保存并返回主界面
+
+## 配置文件
+
+配置自动保存在：
 
 ```
-===========================================
-Claude Code 启动工具
-===========================================
+~/.ccode/config.json
+```
 
-当前配置: xiaomi
+示例结构：
 
-可用选项:
-  anyrouter
-  seed
-* xiaomi
-
-最终环境变量:
- ANTHROPIC_AUTH_TOKEN = sk-********************
- ANTHROPIC_BASE_URL = https://api.xiaomimimo.com/anthropic
- ANTHROPIC_DEFAULT_HAIKU_MODEL = mimo-v2-flash
- ANTHROPIC_DEFAULT_OPUS_MODEL = mimo-v2-flash
- ANTHROPIC_DEFAULT_SONNET_MODEL = mimo-v2-flash
- CLAUDE_CODE_ENABLE_TELEMETRY = 0
- DISABLE_COST_WARNINGS = 1
-
-===========================================
-
-正在设置环境变量...
-环境变量设置完成
-
-正在启动 claude 命令...
-附加参数: --chrome
+```json
+{
+  "base_url": "http://127.0.0.1:8317",
+  "api_key": "",
+  "models": {
+    "opus": {"owned_by": null, "id": null},
+    "sonnet": {"owned_by": null, "id": null},
+    "haiku": {"owned_by": null, "id": null}
+  },
+  "toggles": {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": 0,
+    "DISABLE_COST_WARNINGS": 1,
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": 1
+  }
+}
 ```
 
 ## 工作原理
 
-1. 读取同目录下的 `ccode_config.yaml`（如果没有，尝试 `~/.ccode/ccode_config.yaml`）
-2. 解析 YAML 配置文件
-3. 根据参数选择对应的配置选项
-4. 显示配置信息（token 自动脱敏）
-5. 设置环境变量
-6. 启动 `claude` 命令
-
-## 注意事项
-
-1. **环境变量作用范围**：脚本在当前 shell 进程中设置环境变量，所以必须通过 `source` 方式或确保在子 shell 中继承
-
-2. **macOS bash 版本**：macOS 默认 bash 是 3.2 版本，不支持关联数组。bash 版本已做兼容处理
-
-3. **配置文件位置**：
-   - 优先使用脚本同目录的 `ccode_config.yaml`
-   - 如果不存在，使用 `~/.ccode/ccode_config.yaml`
-
-4. **Token 脱敏**：显示时会保留前后各3个字符，中间用 `*` 替换
-
-## 常见问题
-
-**Q: 为什么环境变量没有生效？**
-A: 确保 claude 命令已经安装并在 PATH 中。检查环境变量是否被正确设置（macOS 可能需要在 `.zshrc` 或 `.bash_profile` 中配置）
-
-**Q: 如何添加新配置？**
-A: 在 `ccode_config.yaml` 的 `options:` 下添加新配置，格式参考已有配置
-
-**Q: PowerShell 和 Bash 版本有区别吗？**
-A: 功能完全相同，只是运行环境不同。Windows 用户用 `.ps1`，macOS/Linux 用户用 `.sh`
+1. 从 `~/.ccode/config.json` 读取配置（首次运行自动生成）。
+2. 根据 Base URL + API Key 拉取模型列表。
+3. 选择 OPUS / SONNET / HAIKU 的 owned_by / model_id。
+4. 启动 `claude`，并注入相关环境变量。
 
 ## 许可证
 
