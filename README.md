@@ -4,6 +4,7 @@
 
 工具的目的是方便启动claude code时快速选择想要使用的模型。模型网关可以使用litellm proxy 或者 CLI Proxy API
 
+![](screenshot.png)
 ## 功能特点
 
 - 终端 curses UI，键盘全操作
