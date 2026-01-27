@@ -6,6 +6,7 @@ import curses.ascii
 import json
 import math
 import os
+import random
 import subprocess
 import sys
 from pathlib import Path
@@ -206,15 +207,34 @@ def update_model_id(
     save_config(config)
 
 
-def logo_lines() -> list[str]:
-    return [
+LOGOS = [
+    # 1. Block (Original)
+    [
         " #####   #####   #####   ####   ##### ",
         "##   ## ##   ## ##   ## ##  ## ##   ##",
         "##      ##      ##   ## ##  ## ##     ",
         "##   ## ##   ## ##   ## ##  ## ##   ##",
         " #####   #####   #####   ####   ##### ",
         "    C C O D E   L A U N C H E R        ",
-    ]
+    ],
+    # 2. Slant
+    [
+        "   ______ ______ ____  ____  ______ ",
+        "  / ____// ____// __ \\/ __ \\/ ____/ ",
+        " / /    / /    / / / / / / / __/    ",
+        "/ /___ / /___ / /_/ / /_/ / /___    ",
+        "\\____/ \\____/ \\____/_____/_____/    ",
+        "   LAUNCHER  EDITION                ",
+    ],
+    # 3. Thin / Cyber
+    [
+        "  ___  ___  ___  ___  ___ ",
+        " / __|/ __|/ _ \\|   \\| __|",
+        "| (__| (__| (_) | |) | _| ",
+        " \\___|\\___|\\___/|___/|___|",
+        "   C C O D E L A U N C H  ",
+    ],
+]
 
 
 def build_env(config: dict[str, Any], masked: bool = False) -> dict[str, str]:
@@ -305,6 +325,8 @@ class CursesApp:
             (curses.COLOR_RED, curses.COLOR_YELLOW),
             (curses.COLOR_YELLOW, curses.COLOR_GREEN),
         ]
+        self.logo_lines = random.choice(LOGOS)
+        self.render_style = random.choice(["wave", "pulse", "glitch", "rain"])
         self.update_models_by_owner()
 
     def update_models_by_owner(self) -> None:
@@ -368,7 +390,19 @@ class CursesApp:
         return curses.color_pair(pair_id)
 
     def render_logo(self, stdscr: curses.window, start_y: int) -> None:
-        lines = logo_lines()
+        if self.render_style == "wave":
+            self.render_style_wave(stdscr, start_y)
+        elif self.render_style == "pulse":
+            self.render_style_pulse(stdscr, start_y)
+        elif self.render_style == "glitch":
+            self.render_style_glitch(stdscr, start_y)
+        elif self.render_style == "rain":
+            self.render_style_rain(stdscr, start_y)
+        else:
+            self.render_style_wave(stdscr, start_y)
+
+    def render_style_wave(self, stdscr: curses.window, start_y: int) -> None:
+        lines = self.logo_lines
         height, width = stdscr.getmaxyx()
         max_len = max(len(line) for line in lines)
         base_x = max(0, (width - max_len) // 2)
@@ -386,6 +420,85 @@ class CursesApp:
                 if shimmer:
                     attr |= curses.A_BOLD
                 addstr_safe(stdscr, draw_y, draw_x, ch, attr)
+
+    def render_style_pulse(self, stdscr: curses.window, start_y: int) -> None:
+        lines = self.logo_lines
+        height, width = stdscr.getmaxyx()
+        max_len = max(len(line) for line in lines)
+        base_x = max(0, (width - max_len) // 2)
+
+        for row, line in enumerate(lines):
+            for col, ch in enumerate(line):
+                if ch == " ":
+                    continue
+
+                attr = 0
+                if self.use_color and self.color_pairs:
+                    # Gradient pulse
+                    idx = (col + row + self.frame // 3) % len(self.color_pairs)
+                    attr = curses.color_pair(self.color_pairs[idx])
+                    # Gentle shimmer
+                    if (self.frame + col + row) % 20 < 10:
+                        attr |= curses.A_BOLD
+
+                addstr_safe(stdscr, start_y + row, base_x + col, ch, attr)
+
+    def render_style_glitch(self, stdscr: curses.window, start_y: int) -> None:
+        lines = self.logo_lines
+        height, width = stdscr.getmaxyx()
+        max_len = max(len(line) for line in lines)
+        base_x = max(0, (width - max_len) // 2)
+
+        for row, line in enumerate(lines):
+            for col, ch in enumerate(line):
+                if ch == " ":
+                    continue
+
+                draw_y = start_y + row
+                draw_x = base_x + col
+                attr = 0
+
+                if self.use_color and self.color_pairs:
+                    idx = (row + col) % len(self.color_pairs)
+                    attr = curses.color_pair(self.color_pairs[idx])
+
+                # Glitch effect: random chance to modify drawing
+                if random.random() < 0.03:
+                    glitch_type = random.randint(0, 2)
+                    if glitch_type == 0:
+                        # Jitter position
+                        draw_x += random.randint(-1, 1)
+                        draw_y += random.randint(-1, 0) # Only up/same
+                    elif glitch_type == 1:
+                        # Change character
+                        ch = random.choice("!@#$%&?<>")
+                    elif glitch_type == 2:
+                        attr |= curses.A_REVERSE
+
+                addstr_safe(stdscr, draw_y, draw_x, ch, attr)
+
+    def render_style_rain(self, stdscr: curses.window, start_y: int) -> None:
+        lines = self.logo_lines
+        height, width = stdscr.getmaxyx()
+        max_len = max(len(line) for line in lines)
+        base_x = max(0, (width - max_len) // 2)
+
+        for row, line in enumerate(lines):
+            for col, ch in enumerate(line):
+                if ch == " ":
+                    continue
+
+                attr = 0
+                if self.use_color and self.color_pairs:
+                    # Vertical flow falling down
+                    idx = (row - (self.frame // 2)) % len(self.color_pairs)
+                    attr = curses.color_pair(self.color_pairs[idx])
+
+                    # Sparkles
+                    if (col * 7 + row * 13 + self.frame) % 17 == 0:
+                         attr |= curses.A_BOLD
+
+                addstr_safe(stdscr, start_y + row, base_x + col, ch, attr)
 
     def run(self, stdscr: curses.window) -> None:
         stdscr.keypad(True)
@@ -422,7 +535,7 @@ class CursesApp:
         y = 1
         start_y = y
         self.render_logo(stdscr, start_y)
-        y = start_y + len(logo_lines()) + 1
+        y = start_y + len(self.logo_lines) + 1
         height, width = stdscr.getmaxyx()
         rows: list[tuple[str, str, str, int]] = []
         max_row = 0
