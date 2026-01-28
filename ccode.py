@@ -707,9 +707,11 @@ class CursesApp:
             self.refresh_models()
             return
         if key == curses.KEY_UP:
+            save_config(self.config)
             self.config_focus_index = max(0, self.config_focus_index - 1)
             return
         if key == curses.KEY_DOWN:
+            save_config(self.config)
             self.config_focus_index = min(
                 len(self.config_fields) - 1, self.config_focus_index + 1
             )
@@ -738,12 +740,10 @@ class CursesApp:
                 value = value[: cursor - 1] + value[cursor:]
                 cursor -= 1
                 self.config[field] = value
-                save_config(self.config)
         elif 0 <= key <= 255 and curses.ascii.isprint(key):
             value = value[:cursor] + chr(key) + value[cursor:]
             cursor += 1
             self.config[field] = value
-            save_config(self.config)
         self.config_cursor[field] = cursor
 
     def cycle_main_option(self, direction: int) -> None:
