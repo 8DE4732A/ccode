@@ -1,0 +1,34 @@
+[project]
+name = "ccoding"
+version = "0.1.0"
+description = "Curses-based Claude Code launcher"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "8de4732a" }]
+keywords = ["claude", "claude-code", "launcher", "curses", "tui"]
+classifiers = [
+    "Environment :: Console :: Curses",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+]
+dependencies = [
+    "windows-curses; sys_platform == 'win32'",
+]
+
+[project.urls]
+Homepage = "https://github.com/8DE4732A/ccode"
+Repository = "https://github.com/8DE4732A/ccode"
+Issues = "https://github.com/8DE4732A/ccode/issues"
+
+[project.scripts]
+ccode = "ccode.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ccode"]

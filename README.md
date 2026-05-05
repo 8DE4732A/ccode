@@ -14,20 +14,36 @@
 - 直接启动 `claude` 并传递额外参数
 - 动画 Logo（颜色渐变 / 流光 / 轻微波浪）
 
-## 依赖
+## 安装
 
-- Python 3（标准库，无第三方依赖）
-
-## 运行方式
+推荐使用 [uv](https://github.com/astral-sh/uv) 安装为全局工具：
 
 ```bash
-python ccode.py
+uv tool install ccoding
 ```
 
-传递额外参数给 `claude`：
+或使用 [pipx](https://pipx.pypa.io)：
 
 ```bash
-python ccode.py --chrome
+pipx install ccoding
+```
+
+安装后直接运行：
+
+```bash
+ccode
+ccode --chrome   # 传递额外参数给 claude
+```
+
+## 开发者运行方式
+
+需要 Python >=3.10，仅依赖标准库（Windows 额外需要 `windows-curses`，安装时自动处理）。
+
+```bash
+git clone https://github.com/8DE4732A/ccode
+cd ccode
+uv sync
+uv run ccode
 ```
 
 ## 快捷键（主界面）
@@ -69,9 +85,9 @@ python ccode.py --chrome
     "haiku": {"owned_by": null, "id": null}
   },
   "toggles": {
-    "CLAUDE_CODE_ENABLE_TELEMETRY": 0,
-    "DISABLE_COST_WARNINGS": 1,
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": 1
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
+    "DISABLE_COST_WARNINGS": "1",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
   }
 }
 ```
