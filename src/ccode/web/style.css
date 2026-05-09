@@ -64,6 +64,11 @@ button:hover {
   background: #21304a;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 input {
   background: #05070a;
   border: 1px solid #1c2638;
@@ -127,6 +132,10 @@ button[hidden],
 .session-card small {
   color: #8fa1bd;
   overflow-wrap: anywhere;
+}
+
+.session-card.offline {
+  border-color: #3a2630;
 }
 
 .session-card code {

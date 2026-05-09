@@ -9,12 +9,12 @@ const changeTokenButton = document.getElementById("change-token");
 const reconnectButton = document.getElementById("reconnect");
 const focusButton = document.getElementById("focus");
 
-const tokenStorageKey = "ccode.remote.token";
+const tokenStorageKey = "ccode.remote.adminToken";
 let token = window.sessionStorage.getItem(tokenStorageKey) || "";
 let socket = null;
 let term = null;
 let fitAddon = null;
-let currentSessionId = null;
+let currentSession = null;
 
 function setStatus(message) {
   statusEl.textContent = message;
@@ -67,7 +67,7 @@ function closeSocket() {
 
 function showTokenMode(message = "enter token") {
   closeSocket();
-  currentSessionId = null;
+  currentSession = null;
   terminalEl.hidden = true;
   sessionListEl.hidden = true;
   tokenFormEl.hidden = false;
@@ -83,7 +83,7 @@ function showTokenMode(message = "enter token") {
 
 function showListMode() {
   closeSocket();
-  currentSessionId = null;
+  currentSession = null;
   tokenFormEl.hidden = true;
   terminalEl.hidden = true;
   sessionListEl.hidden = false;
@@ -127,14 +127,25 @@ function renderSessions(sessions) {
     return;
   }
 
-  setStatus(`${sessions.length} running session${sessions.length === 1 ? "" : "s"}`);
+  const onlineCount = sessions.filter((session) => session.online !== false).length;
+  setStatus(`${onlineCount}/${sessions.length} online session${sessions.length === 1 ? "" : "s"}`);
   for (const session of sessions) {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "session-card";
+    const online = session.online !== false;
+    if (!online) {
+      card.disabled = true;
+      card.classList.add("offline");
+    }
 
     const title = document.createElement("strong");
     title.textContent = session.title || session.id || "ccode session";
+
+    const device = document.createElement("span");
+    device.textContent = session.device_id
+      ? `device ${session.device_name || session.device_id} · ${online ? "online" : "offline"}`
+      : "local hub";
 
     const cwd = document.createElement("span");
     cwd.textContent = session.cwd || "unknown cwd";
@@ -145,8 +156,8 @@ function renderSessions(sessions) {
     const created = document.createElement("small");
     created.textContent = `created ${formatDate(session.created_at)}`;
 
-    card.append(title, cwd, tmux, created);
-    card.addEventListener("click", () => openSession(session.id));
+    card.append(title, device, cwd, tmux, created);
+    card.addEventListener("click", () => openSession(session));
     sessionListEl.append(card);
   }
 }
@@ -181,12 +192,19 @@ async function loadSessions() {
   }
 }
 
+function sessionWsPath(session) {
+  if (session.device_id) {
+    return `/ws/devices/${encodeURIComponent(session.device_id)}/sessions/${encodeURIComponent(session.id)}`;
+  }
+  return `/ws/${encodeURIComponent(session.id)}`;
+}
+
 function connect() {
   if (!token) {
     showTokenMode();
     return;
   }
-  if (!currentSessionId) {
+  if (!currentSession) {
     setStatus("choose a session first");
     return;
   }
@@ -195,7 +213,7 @@ function connect() {
   closeSocket();
   term.clear();
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  socket = new WebSocket(`${protocol}//${window.location.host}/ws/${encodeURIComponent(currentSessionId)}`);
+  socket = new WebSocket(`${protocol}//${window.location.host}${sessionWsPath(currentSession)}`);
   setStatus("connecting");
 
   socket.addEventListener("open", () => {
@@ -234,8 +252,8 @@ function connect() {
   });
 }
 
-function openSession(sessionId) {
-  currentSessionId = sessionId;
+function openSession(session) {
+  currentSession = session;
   showTerminalMode();
   ensureTerminal();
   fitAndSendResize();

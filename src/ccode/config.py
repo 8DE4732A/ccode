@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import copy
 import json
+import socket
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -23,11 +26,22 @@ DEFAULT_TOGGLES: dict[str, str] = {
 
 DEFAULT_REMOTE: dict[str, Any] = {
     "enabled": False,
-    "host": "127.0.0.1",
-    "port": 8765,
-    "token": "",
+    "mode": "local",
     "session_name": "ccode-claude",
     "reuse_session": True,
+    "local": {
+        "host": "127.0.0.1",
+        "port": 8765,
+        "token": "",
+    },
+    "server": {
+        "url": "",
+        "token": "",
+        "device_name": "",
+        "device_id": "",
+        "auto_connect": True,
+        "verify_tls": True,
+    },
 }
 
 _ENV_SCHEMA: dict[str, Any] = {}
@@ -74,8 +88,73 @@ def default_config() -> dict[str, Any]:
             "haiku": {"owned_by": None, "id": None},
         },
         "toggles": DEFAULT_TOGGLES.copy(),
-        "remote": DEFAULT_REMOTE.copy(),
+        "remote": copy.deepcopy(DEFAULT_REMOTE),
     }
+
+
+def _device_name_default() -> str:
+    try:
+        return socket.gethostname() or "ccode-device"
+    except OSError:
+        return "ccode-device"
+
+
+def _new_device_id() -> str:
+    return f"ccode-{uuid.uuid4().hex}"
+
+
+def normalize_remote(remote: Any) -> dict[str, Any]:
+    normalized = copy.deepcopy(DEFAULT_REMOTE)
+    if not isinstance(remote, dict):
+        return normalized
+
+    enabled = remote.get("enabled")
+    if isinstance(enabled, bool):
+        normalized["enabled"] = enabled
+    mode = remote.get("mode")
+    if isinstance(mode, str) and mode in {"local", "server"}:
+        normalized["mode"] = mode
+    session_name = remote.get("session_name")
+    if isinstance(session_name, str):
+        normalized["session_name"] = session_name
+    reuse_session = remote.get("reuse_session")
+    if isinstance(reuse_session, bool):
+        normalized["reuse_session"] = reuse_session
+
+    local = remote.get("local") if isinstance(remote.get("local"), dict) else {}
+    host = local.get("host") if isinstance(local, dict) else None
+    if not isinstance(host, str):
+        host = remote.get("host")
+    if isinstance(host, str):
+        normalized["local"]["host"] = host
+    port = local.get("port") if isinstance(local, dict) else None
+    if not isinstance(port, int):
+        port = remote.get("port")
+    if isinstance(port, int):
+        normalized["local"]["port"] = port
+    token = local.get("token") if isinstance(local, dict) else None
+    if not isinstance(token, str):
+        token = remote.get("token")
+    if isinstance(token, str):
+        normalized["local"]["token"] = token
+
+    server = remote.get("server") if isinstance(remote.get("server"), dict) else {}
+    if isinstance(server, dict):
+        for key in ("url", "token", "device_name", "device_id"):
+            value = server.get(key)
+            if isinstance(value, str):
+                normalized["server"][key] = value
+        for key in ("auto_connect", "verify_tls"):
+            value = server.get(key)
+            if isinstance(value, bool):
+                normalized["server"][key] = value
+
+    if normalized["mode"] == "server":
+        if not normalized["server"].get("device_id"):
+            normalized["server"]["device_id"] = _new_device_id()
+        if not normalized["server"].get("device_name"):
+            normalized["server"]["device_name"] = _device_name_default()
+    return normalized
 
 
 def load_config() -> dict[str, Any]:
@@ -124,31 +203,13 @@ def load_config() -> dict[str, Any]:
         if new_toggles:
             config["toggles"] = new_toggles
 
-    remote = data.get("remote")
-    if isinstance(remote, dict):
-        enabled = remote.get("enabled")
-        if isinstance(enabled, bool):
-            config["remote"]["enabled"] = enabled
-        host = remote.get("host")
-        if isinstance(host, str):
-            config["remote"]["host"] = host
-        port = remote.get("port")
-        if isinstance(port, int):
-            config["remote"]["port"] = port
-        token = remote.get("token")
-        if isinstance(token, str):
-            config["remote"]["token"] = token
-        session_name = remote.get("session_name")
-        if isinstance(session_name, str):
-            config["remote"]["session_name"] = session_name
-        reuse_session = remote.get("reuse_session")
-        if isinstance(reuse_session, bool):
-            config["remote"]["reuse_session"] = reuse_session
+    config["remote"] = normalize_remote(data.get("remote"))
 
     return config
 
 
 def save_config(config: dict[str, Any]) -> None:
+    config["remote"] = normalize_remote(config.get("remote"))
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(json.dumps(config, indent=2))
 

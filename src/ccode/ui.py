@@ -33,17 +33,23 @@ from .logo import (
     render_style_rain,
     render_style_wave,
 )
-from .remote import remote_url, run_remote_server
+from .remote_common import remote_display_url, remote_local_host_port, remote_mode, remote_server_config
 
 # 配置界面 field 类型标识
 _FIELD_BASE_URL = "base_url"
 _FIELD_API_KEY = "api_key"
 _FIELD_REMOTE_ENABLED = "remote.enabled"
-_FIELD_REMOTE_HOST = "remote.host"
-_FIELD_REMOTE_PORT = "remote.port"
+_FIELD_REMOTE_MODE = "remote.mode"
+_FIELD_REMOTE_LOCAL_HOST = "remote.local.host"
+_FIELD_REMOTE_LOCAL_PORT = "remote.local.port"
+_FIELD_REMOTE_LOCAL_TOKEN = "remote.local.token"
+_FIELD_REMOTE_SERVER_URL = "remote.server.url"
+_FIELD_REMOTE_SERVER_TOKEN = "remote.server.token"
+_FIELD_REMOTE_SERVER_DEVICE_NAME = "remote.server.device_name"
+_FIELD_REMOTE_SERVER_DEVICE_ID = "remote.server.device_id"
+_FIELD_REMOTE_SERVER_AUTO_CONNECT = "remote.server.auto_connect"
 _FIELD_REMOTE_SESSION_NAME = "remote.session_name"
 _FIELD_REMOTE_REUSE_SESSION = "remote.reuse_session"
-_FIELD_REMOTE_TOKEN = "remote.token"
 _FIELD_TOGGLE = "toggle:"      # 前缀 + key
 _FIELD_ADD_TOGGLE = "__add__"  # 新增行
 
@@ -80,13 +86,19 @@ class CursesApp:
         self.config_focus_index = 0
         # 文本字段光标位置
         remote = self.config.get("remote", {})
+        local = remote.get("local", {}) if isinstance(remote.get("local"), dict) else {}
+        server = remote.get("server", {}) if isinstance(remote.get("server"), dict) else {}
         self.config_cursor: dict[str, int] = {
             _FIELD_BASE_URL: len(self.config.get("base_url", "")),
             _FIELD_API_KEY: len(self.config.get("api_key", "")),
-            _FIELD_REMOTE_HOST: len(str(remote.get("host", ""))),
-            _FIELD_REMOTE_PORT: len(str(remote.get("port", ""))),
+            _FIELD_REMOTE_LOCAL_HOST: len(str(local.get("host", ""))),
+            _FIELD_REMOTE_LOCAL_PORT: len(str(local.get("port", ""))),
+            _FIELD_REMOTE_LOCAL_TOKEN: len(str(local.get("token", ""))),
+            _FIELD_REMOTE_SERVER_URL: len(str(server.get("url", ""))),
+            _FIELD_REMOTE_SERVER_TOKEN: len(str(server.get("token", ""))),
+            _FIELD_REMOTE_SERVER_DEVICE_NAME: len(str(server.get("device_name", ""))),
+            _FIELD_REMOTE_SERVER_DEVICE_ID: len(str(server.get("device_id", ""))),
             _FIELD_REMOTE_SESSION_NAME: len(str(remote.get("session_name", ""))),
-            _FIELD_REMOTE_TOKEN: len(str(remote.get("token", ""))),
         }
         # 新增 toggle 时 key / value 的输入状态
         self._add_phase: int = 0       # 0=未激活, 1=输入key, 2=输入value
@@ -121,11 +133,17 @@ class CursesApp:
             _FIELD_BASE_URL,
             _FIELD_API_KEY,
             _FIELD_REMOTE_ENABLED,
-            _FIELD_REMOTE_HOST,
-            _FIELD_REMOTE_PORT,
+            _FIELD_REMOTE_MODE,
+            _FIELD_REMOTE_LOCAL_HOST,
+            _FIELD_REMOTE_LOCAL_PORT,
+            _FIELD_REMOTE_LOCAL_TOKEN,
+            _FIELD_REMOTE_SERVER_URL,
+            _FIELD_REMOTE_SERVER_TOKEN,
+            _FIELD_REMOTE_SERVER_DEVICE_NAME,
+            _FIELD_REMOTE_SERVER_DEVICE_ID,
+            _FIELD_REMOTE_SERVER_AUTO_CONNECT,
             _FIELD_REMOTE_SESSION_NAME,
             _FIELD_REMOTE_REUSE_SESSION,
-            _FIELD_REMOTE_TOKEN,
         ]
         for k in toggles:
             fields.append(f"{_FIELD_TOGGLE}{k}")
@@ -256,8 +274,17 @@ class CursesApp:
             max_row = max(max_row, row_width)
             rows.append((label, owner, model_id, row_width))
         remote = self.config.get("remote", {})
-        remote_line = "REMOTE: on  " + remote_url(self.config) if self.remote_enabled else "REMOTE: off"
-        if str(remote.get("host", "")) == "0.0.0.0":
+        mode = remote_mode(self.config)
+        if self.remote_enabled:
+            if mode == "server":
+                device = remote_server_config(self.config).get("device_name") or "<unnamed>"
+                remote_line = f"REMOTE: on server {remote_display_url(self.config)} device={device}"
+            else:
+                remote_line = "REMOTE: on local " + remote_display_url(self.config)
+        else:
+            remote_line = "REMOTE: off"
+        host, _port = remote_local_host_port(self.config)
+        if mode == "local" and host == "0.0.0.0":
             remote_line += "  [warning: network exposed]"
         hint = "enter to start, r remote on/off, c config, b refresh, a/d change model, q quit"
         content_width = max(max_row, len(remote_line), len(hint), len(self.status_message))
@@ -331,24 +358,34 @@ class CursesApp:
         addstr_safe(stdscr, y, x, "─── Remote/Web  [space/enter]=toggle  [g]=generate token ─────────────")
         y += 1
         remote = self.config.setdefault("remote", {})
+        local = remote.setdefault("local", {})
+        server = remote.setdefault("server", {})
         remote_rows: dict[str, tuple[int, int, str]] = {}
         remote_items = [
             (_FIELD_REMOTE_ENABLED, "DEFAULT REMOTE:", "on" if remote.get("enabled") else "off"),
-            (_FIELD_REMOTE_HOST, "HOST:", str(remote.get("host", ""))),
-            (_FIELD_REMOTE_PORT, "PORT:", str(remote.get("port", ""))),
+            (_FIELD_REMOTE_MODE, "MODE:", str(remote.get("mode", "local"))),
+            (_FIELD_REMOTE_LOCAL_HOST, "LOCAL HOST:", str(local.get("host", ""))),
+            (_FIELD_REMOTE_LOCAL_PORT, "LOCAL PORT:", str(local.get("port", ""))),
+            (_FIELD_REMOTE_LOCAL_TOKEN, "LOCAL TOKEN:", mask_secret(str(local.get("token", "")))),
+            (_FIELD_REMOTE_SERVER_URL, "SERVER URL:", str(server.get("url", ""))),
+            (_FIELD_REMOTE_SERVER_TOKEN, "CLIENT TOKEN:", mask_secret(str(server.get("token", "")))),
+            (_FIELD_REMOTE_SERVER_DEVICE_NAME, "DEVICE NAME:", str(server.get("device_name", ""))),
+            (_FIELD_REMOTE_SERVER_DEVICE_ID, "DEVICE ID:", str(server.get("device_id", ""))),
+            (_FIELD_REMOTE_SERVER_AUTO_CONNECT, "AUTO CONNECT:", "on" if server.get("auto_connect") else "off"),
             (_FIELD_REMOTE_SESSION_NAME, "PREFIX:", str(remote.get("session_name", ""))),
             (_FIELD_REMOTE_REUSE_SESSION, "REUSE:", "on" if remote.get("reuse_session") else "off"),
-            (_FIELD_REMOTE_TOKEN, "TOKEN:", mask_secret(str(remote.get("token", "")))),
         ]
         for field, label, display in remote_items:
             is_focused = focused == field
             label_x = x
-            value_x = x + 18
-            if field == _FIELD_REMOTE_TOKEN and is_focused:
-                display = str(remote.get("token", ""))
+            value_x = x + 22
+            if field == _FIELD_REMOTE_LOCAL_TOKEN and is_focused:
+                display = str(local.get("token", ""))
+            if field == _FIELD_REMOTE_SERVER_TOKEN and is_focused:
+                display = str(server.get("token", ""))
             addstr_safe(stdscr, y, label_x, label)
             addstr_safe(stdscr, y, value_x, display or "<unset>", curses.A_REVERSE if is_focused else 0)
-            if field == _FIELD_REMOTE_HOST and str(remote.get("host", "")) == "0.0.0.0":
+            if field == _FIELD_REMOTE_LOCAL_HOST and str(local.get("host", "")) == "0.0.0.0":
                 addstr_safe(stdscr, y, value_x + len(display or "<unset>") + 2, "warning: exposes local terminal")
             remote_rows[field] = (y, value_x, display)
             y += 1
@@ -445,10 +482,14 @@ class CursesApp:
             cursor_pos = min(self.config_cursor.get(_FIELD_API_KEY, 0), len(api_key_value))
             self.place_cursor(stdscr, api_y, api_x + cursor_pos)
         elif focused in (
-            _FIELD_REMOTE_HOST,
-            _FIELD_REMOTE_PORT,
+            _FIELD_REMOTE_LOCAL_HOST,
+            _FIELD_REMOTE_LOCAL_PORT,
+            _FIELD_REMOTE_LOCAL_TOKEN,
+            _FIELD_REMOTE_SERVER_URL,
+            _FIELD_REMOTE_SERVER_TOKEN,
+            _FIELD_REMOTE_SERVER_DEVICE_NAME,
+            _FIELD_REMOTE_SERVER_DEVICE_ID,
             _FIELD_REMOTE_SESSION_NAME,
-            _FIELD_REMOTE_TOKEN,
         ):
             row_y, row_x, display = remote_rows[focused]
             cursor_pos = min(self.config_cursor.get(focused, 0), len(display))
@@ -509,18 +550,31 @@ class CursesApp:
             self.config_focus_index = min(len(fields) - 1, self.config_focus_index + 1)
             return
 
-        if focused in (_FIELD_REMOTE_ENABLED, _FIELD_REMOTE_REUSE_SESSION):
+        if focused in (_FIELD_REMOTE_ENABLED, _FIELD_REMOTE_REUSE_SESSION, _FIELD_REMOTE_SERVER_AUTO_CONNECT):
             if key in (curses.KEY_ENTER, 10, 13, ord(" ")):
                 remote = self.config.setdefault("remote", {})
-                remote_key = "enabled" if focused == _FIELD_REMOTE_ENABLED else "reuse_session"
-                remote[remote_key] = not bool(remote.get(remote_key, False))
+                if focused == _FIELD_REMOTE_SERVER_AUTO_CONNECT:
+                    server = remote.setdefault("server", {})
+                    server["auto_connect"] = not bool(server.get("auto_connect", False))
+                else:
+                    remote_key = "enabled" if focused == _FIELD_REMOTE_ENABLED else "reuse_session"
+                    remote[remote_key] = not bool(remote.get(remote_key, False))
                 save_config(self.config)
             return
 
-        if focused == _FIELD_REMOTE_TOKEN and key in (ord("g"), ord("G")):
+        if focused == _FIELD_REMOTE_MODE:
+            if key in (curses.KEY_ENTER, 10, 13, ord(" ")):
+                remote = self.config.setdefault("remote", {})
+                remote["mode"] = "server" if remote.get("mode") == "local" else "local"
+                save_config(self.config)
+            return
+
+        if focused in (_FIELD_REMOTE_LOCAL_TOKEN, _FIELD_REMOTE_SERVER_TOKEN) and key in (ord("g"), ord("G")):
             token = secrets.token_urlsafe(24)
-            self.config.setdefault("remote", {})["token"] = token
-            self.config_cursor[_FIELD_REMOTE_TOKEN] = len(token)
+            remote = self.config.setdefault("remote", {})
+            target = remote.setdefault("local" if focused == _FIELD_REMOTE_LOCAL_TOKEN else "server", {})
+            target["token"] = token
+            self.config_cursor[focused] = len(token)
             save_config(self.config)
             self.status_message = "Remote token regenerated."
             return
@@ -530,10 +584,14 @@ class CursesApp:
             self._handle_text_field(focused, key)
             return
         if focused in (
-            _FIELD_REMOTE_HOST,
-            _FIELD_REMOTE_PORT,
+            _FIELD_REMOTE_LOCAL_HOST,
+            _FIELD_REMOTE_LOCAL_PORT,
+            _FIELD_REMOTE_LOCAL_TOKEN,
+            _FIELD_REMOTE_SERVER_URL,
+            _FIELD_REMOTE_SERVER_TOKEN,
+            _FIELD_REMOTE_SERVER_DEVICE_NAME,
+            _FIELD_REMOTE_SERVER_DEVICE_ID,
             _FIELD_REMOTE_SESSION_NAME,
-            _FIELD_REMOTE_TOKEN,
         ):
             self._handle_remote_text_field(focused, key)
             return
@@ -585,19 +643,27 @@ class CursesApp:
 
     def _handle_remote_text_field(self, field: str, key: int) -> None:
         remote = self.config.setdefault("remote", {})
-        remote_key = field.removeprefix("remote.")
-        value = str(remote.get(remote_key, ""))
+        if field.startswith("remote.local."):
+            target = remote.setdefault("local", {})
+            remote_key = field.removeprefix("remote.local.")
+        elif field.startswith("remote.server."):
+            target = remote.setdefault("server", {})
+            remote_key = field.removeprefix("remote.server.")
+        else:
+            target = remote
+            remote_key = field.removeprefix("remote.")
+        value = str(target.get(remote_key, ""))
         cursor = min(self.config_cursor.get(field, 0), len(value))
         new_value, cursor = self._edit_string(value, cursor, key)
-        if field == _FIELD_REMOTE_PORT:
+        if field == _FIELD_REMOTE_LOCAL_PORT:
             if new_value.isdigit():
-                remote[remote_key] = int(new_value)
+                target[remote_key] = int(new_value)
                 self.status_message = ""
             else:
                 self.status_message = "Remote port must be an integer."
                 return
         else:
-            remote[remote_key] = new_value
+            target[remote_key] = new_value
         self.config_cursor[field] = cursor
 
     def _edit_string(self, value: str, cursor: int, key: int) -> tuple[str, int]:
@@ -845,4 +911,6 @@ class CursesApp:
         return self._run_outside_curses(stdscr, launch_claude)
 
     def launch_remote_with_curses(self, stdscr: curses.window) -> str | None:
+        from .remote import run_remote_server
+
         return self._run_outside_curses(stdscr, run_remote_server)

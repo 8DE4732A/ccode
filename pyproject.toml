@@ -1,6 +1,6 @@
 [project]
 name = "ccoding"
-version = "0.2.0"
+version = "0.2.1"
 description = "Curses-based Claude Code launcher"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -15,10 +15,23 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
 ]
 dependencies = [
+    "windows-curses; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+remote-client = [
+    "pexpect; sys_platform != 'win32'",
+    "websockets",
+]
+remote-server = [
     "fastapi",
     "uvicorn[standard]",
+]
+remote = [
     "pexpect; sys_platform != 'win32'",
-    "windows-curses; sys_platform == 'win32'",
+    "websockets",
+    "fastapi",
+    "uvicorn[standard]",
 ]
 
 [project.urls]
@@ -29,6 +42,7 @@ Issues = "https://github.com/8DE4732A/ccode/issues"
 [project.scripts]
 ccode = "ccode.cli:main"
 ccode-remote = "ccode.remote_cli:main"
+ccode-remote-server = "ccode.remote_server:main"
 
 [build-system]
 requires = ["hatchling"]

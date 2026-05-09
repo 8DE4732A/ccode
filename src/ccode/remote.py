@@ -1,27 +1,35 @@
-from __future__ import annotations
-
 import asyncio
 import contextlib
-import datetime as dt
-import fcntl
 import json
 import os
-import re
-import secrets
 import shutil
 import subprocess
 import sys
 import time
-from importlib import resources
 from typing import Any, Iterator
-from urllib.parse import quote
 from urllib.request import urlopen
-
-from fastapi import FastAPI, Header, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from .api import build_claude_command, build_env
 from .config import CONFIG_DIR, CONFIG_PATH, load_config
+from .remote_common import (
+    _new_session_id,
+    _sanitize_session_name,
+    _utc_now,
+    asset_text,
+    auth_token_matches,
+    file_lock,
+    missing_extra_message,
+    remote_local_host_port,
+    remote_local_token,
+    remote_local_url,
+    remote_mode,
+    remote_server_config,
+    remote_server_url,
+    rotate_log,
+    token_matches,
+    web_asset_text,
+    websocket_auth_token,
+)
 
 REMOTE_SESSIONS_PATH = CONFIG_DIR / "remote_sessions.json"
 REMOTE_SESSIONS_LOCK_PATH = CONFIG_DIR / "remote_sessions.lock"
@@ -78,17 +86,11 @@ class TerminalBridge:
 
 
 def remote_host_port(config: dict[str, Any]) -> tuple[str, int]:
-    remote = config.get("remote", {})
-    return str(remote.get("host") or "127.0.0.1"), int(remote.get("port") or 8765)
+    return remote_local_host_port(config)
 
 
 def remote_url(config: dict[str, Any], include_token: bool = False) -> str:
-    host, port = remote_host_port(config)
-    url = f"http://{host}:{port}/"
-    token = str(config.get("remote", {}).get("token") or "")
-    if include_token and token:
-        return f"{url}?token={quote(token)}"
-    return url
+    return remote_local_url(config, include_token=include_token)
 
 
 def _check_runtime() -> str | None:
@@ -111,22 +113,6 @@ def _session_exists(session_name: str) -> bool:
     return result.returncode == 0
 
 
-def _sanitize_session_name(value: str) -> str:
-    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-")
-    return sanitized or "ccode-claude"
-
-
-def _new_session_id(config: dict[str, Any]) -> str:
-    remote = config.get("remote", {})
-    prefix = _sanitize_session_name(str(remote.get("session_name") or "ccode-claude"))
-    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
-    return f"{prefix}-{stamp}-{os.getpid()}"
-
-
-def _utc_now() -> str:
-    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
 def _log_line(message: str) -> str:
     return f"[{_utc_now()}] {message}"
 
@@ -142,25 +128,14 @@ def _append_log_event(message: str) -> None:
 
 
 @contextlib.contextmanager
-def _file_lock(path: Any) -> Iterator[None]:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with path.open("a+") as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-
-
-@contextlib.contextmanager
 def with_session_registry_lock() -> Iterator[None]:
-    with _file_lock(REMOTE_SESSIONS_LOCK_PATH):
+    with file_lock(REMOTE_SESSIONS_LOCK_PATH):
         yield
 
 
 @contextlib.contextmanager
 def with_remote_hub_lock() -> Iterator[None]:
-    with _file_lock(REMOTE_HUB_LOCK_PATH):
+    with file_lock(REMOTE_HUB_LOCK_PATH):
         yield
 
 
@@ -213,30 +188,36 @@ def _running_tmux_sessions() -> set[str]:
 def scan_remote_sessions(prune: bool = True) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     with with_session_registry_lock():
         registry = load_session_registry()
-        sessions = registry.setdefault("sessions", {})
-        if not isinstance(sessions, dict):
+        raw_sessions = registry.setdefault("sessions", {})
+        if not isinstance(raw_sessions, dict):
             return [], []
-        tmux_sessions = _running_tmux_sessions()
-        running: list[dict[str, Any]] = []
-        dead: list[dict[str, Any]] = []
-        dead_ids: list[str] = []
-        for session_id, session in sessions.items():
-            if not isinstance(session, dict):
-                dead_ids.append(session_id)
-                continue
-            tmux_session = session.get("tmux_session")
-            if isinstance(tmux_session, str) and tmux_session in tmux_sessions:
-                running.append(session)
-            else:
-                dead.append(session)
-                dead_ids.append(session_id)
-        if prune and dead_ids:
-            for session_id in dead_ids:
-                sessions.pop(session_id, None)
-            save_session_registry(registry)
-        running.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
-        dead.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
-        return running, dead
+        session_items = list(raw_sessions.items())
+
+    tmux_sessions = _running_tmux_sessions()
+    running: list[dict[str, Any]] = []
+    dead: list[dict[str, Any]] = []
+    dead_ids: list[str] = []
+    for session_id, session in session_items:
+        if not isinstance(session, dict):
+            dead_ids.append(session_id)
+            continue
+        tmux_session = session.get("tmux_session")
+        if isinstance(tmux_session, str) and tmux_session in tmux_sessions:
+            running.append(session)
+        else:
+            dead.append(session)
+            dead_ids.append(session_id)
+    if prune and dead_ids:
+        with with_session_registry_lock():
+            registry = load_session_registry()
+            sessions = registry.setdefault("sessions", {})
+            if isinstance(sessions, dict):
+                for session_id in dead_ids:
+                    sessions.pop(session_id, None)
+                save_session_registry(registry)
+    running.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    dead.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return running, dead
 
 
 def prune_dead_sessions() -> None:
@@ -300,21 +281,7 @@ def _hub_is_running(config: dict[str, Any]) -> bool:
 
 
 def rotate_remote_server_log() -> None:
-    try:
-        size = REMOTE_SERVER_LOG_PATH.stat().st_size
-    except FileNotFoundError:
-        return
-    if size < REMOTE_SERVER_LOG_MAX_BYTES:
-        return
-
-    for index in range(REMOTE_SERVER_LOG_BACKUPS, 0, -1):
-        source = REMOTE_SERVER_LOG_PATH if index == 1 else REMOTE_SERVER_LOG_PATH.with_name(f"{REMOTE_SERVER_LOG_PATH.name}.{index - 1}")
-        target = REMOTE_SERVER_LOG_PATH.with_name(f"{REMOTE_SERVER_LOG_PATH.name}.{index}")
-        if not source.exists():
-            continue
-        if index == REMOTE_SERVER_LOG_BACKUPS and target.exists():
-            target.unlink()
-        source.replace(target)
+    rotate_log(REMOTE_SERVER_LOG_PATH, REMOTE_SERVER_LOG_MAX_BYTES, REMOTE_SERVER_LOG_BACKUPS)
 
 
 def ensure_remote_hub(config: dict[str, Any]) -> str | None:
@@ -366,62 +333,20 @@ def _current_remote_token() -> str:
     cached_mtime, cached_token = _TOKEN_CACHE
     if cached_mtime == mtime:
         return cached_token
-    token = str(load_config().get("remote", {}).get("token") or "").strip()
+    token = remote_local_token(load_config()).strip()
     _TOKEN_CACHE = (mtime, token)
     return token
 
 
-def _token_matches(expected: str, provided: str | None) -> bool:
-    value = (provided or "").strip()
-    return bool(value) and bool(expected) and secrets.compare_digest(value, expected)
-
-
 def _valid_token(token: str | None) -> bool:
-    return _token_matches(_current_remote_token(), token)
+    return token_matches(_current_remote_token(), token)
 
 
 def _valid_auth_token(token: str | None, authorization: str | None = None) -> bool:
-    expected = _current_remote_token()
-    if _token_matches(expected, token):
-        return True
-    if not authorization:
-        return False
-    scheme, _, value = authorization.partition(" ")
-    return scheme.lower() == "bearer" and _token_matches(expected, value)
+    return auth_token_matches(_current_remote_token(), token, authorization)
 
 
-async def _websocket_token(websocket: WebSocket) -> str | None:
-    try:
-        raw = await asyncio.wait_for(websocket.receive_text(), timeout=10)
-        payload = json.loads(raw)
-    except (asyncio.TimeoutError, json.JSONDecodeError):
-        return None
-    if payload.get("type") != "auth":
-        return None
-    token = payload.get("token")
-    return token if isinstance(token, str) else None
-
-
-_ASSET_TEXT_CACHE: dict[str, str] = {}
-
-
-def _cached_asset_text(key: str, path: Any) -> str:
-    cached = _ASSET_TEXT_CACHE.get(key)
-    if cached is None:
-        cached = path.read_text(encoding="utf-8")
-        _ASSET_TEXT_CACHE[key] = cached
-    return cached
-
-
-def _asset_text(name: str) -> str:
-    return _cached_asset_text(name, resources.files("ccode.web").joinpath(name))
-
-
-def _web_asset_text(name: str) -> str:
-    return _cached_asset_text(f"assets/{name}", resources.files("ccode.web").joinpath("assets", name))
-
-
-async def _attach_websocket_to_session(websocket: WebSocket, session: dict[str, Any]) -> None:
+async def _attach_websocket_to_session(websocket: Any, session: dict[str, Any]) -> None:
     session_id = str(session.get("id") or "<unknown>")
     tmux_session = session.get("tmux_session")
     if not isinstance(tmux_session, str) or not _session_exists(tmux_session):
@@ -452,7 +377,7 @@ async def _attach_websocket_to_session(websocket: WebSocket, session: dict[str, 
                 cols = payload.get("cols")
                 if isinstance(rows, int) and isinstance(cols, int):
                     await bridge.resize(rows, cols)
-    except WebSocketDisconnect:
+    except Exception:
         _log_event(f"websocket disconnected session_id={session_id}")
     finally:
         if reader is not None:
@@ -461,21 +386,27 @@ async def _attach_websocket_to_session(websocket: WebSocket, session: dict[str, 
         _log_event(f"websocket bridge closed session_id={session_id}")
 
 
-def create_app() -> FastAPI:
+def create_app() -> Any:
+    try:
+        from fastapi import FastAPI, Header, WebSocket as FastAPIWebSocket
+        from fastapi.responses import HTMLResponse, JSONResponse, Response
+    except ImportError:
+        raise RuntimeError(missing_extra_message("remote-server", "fastapi, uvicorn")) from None
+
     app = FastAPI()
 
     @app.get("/")
     async def index() -> Response:
         _log_event("served remote index")
-        return HTMLResponse(_asset_text("index.html"), headers={"Cache-Control": "no-store"})
+        return HTMLResponse(asset_text("index.html"), headers={"Cache-Control": "no-store"})
 
     @app.get("/app.js")
     async def app_js() -> Response:
-        return Response(_asset_text("app.js"), media_type="application/javascript")
+        return Response(asset_text("app.js"), media_type="application/javascript")
 
     @app.get("/style.css")
     async def style_css() -> Response:
-        return Response(_asset_text("style.css"), media_type="text/css")
+        return Response(asset_text("style.css"), media_type="text/css")
 
     @app.get("/assets/{asset_name}")
     async def web_asset(asset_name: str) -> Response:
@@ -487,7 +418,7 @@ def create_app() -> FastAPI:
         media_type = media_types.get(asset_name)
         if media_type is None:
             return Response(status_code=404)
-        return Response(_web_asset_text(asset_name), media_type=media_type)
+        return Response(web_asset_text(asset_name), media_type=media_type)
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
@@ -537,10 +468,10 @@ def create_app() -> FastAPI:
         return JSONResponse({"deprecated": True, "sessions": len(sessions)})
 
     @app.websocket("/ws/{session_id}")
-    async def websocket_session(websocket: WebSocket, session_id: str) -> None:
+    async def websocket_session(websocket: FastAPIWebSocket, session_id: str) -> None:
         await websocket.accept()
         _log_event(f"websocket accepted session_id={session_id}")
-        if not _valid_token(await _websocket_token(websocket)):
+        if not _valid_token(await websocket_auth_token(websocket)):
             _log_event(f"websocket unauthorized session_id={session_id}")
             await websocket.send_json({"type": "status", "message": "unauthorized: invalid token"})
             await websocket.close(code=1008)
@@ -554,10 +485,10 @@ def create_app() -> FastAPI:
         await _attach_websocket_to_session(websocket, session)
 
     @app.websocket("/ws")
-    async def legacy_websocket(websocket: WebSocket) -> None:
+    async def legacy_websocket(websocket: FastAPIWebSocket) -> None:
         await websocket.accept()
         _log_event("legacy websocket accepted")
-        if not _valid_token(await _websocket_token(websocket)):
+        if not _valid_token(await websocket_auth_token(websocket)):
             _log_event("legacy websocket unauthorized")
             await websocket.send_json({"type": "status", "message": "unauthorized: invalid token"})
             await websocket.close(code=1008)
@@ -587,7 +518,7 @@ def run_remote_hub_forever(config: dict[str, Any]) -> str | None:
     try:
         import uvicorn
     except ImportError:
-        return "Missing dependency 'uvicorn'. Run uv sync or install ccode with remote dependencies."
+        return missing_extra_message("remote-server", "uvicorn")
 
     host, port = remote_host_port(config)
     _log_event(f"remote hub serving host={host} port={port} pid={os.getpid()}")
@@ -598,8 +529,12 @@ def run_remote_hub_forever(config: dict[str, Any]) -> str | None:
 
 
 def run_remote_session(config: dict[str, Any], args: list[str]) -> str | None:
-    if not str(config.get("remote", {}).get("token") or "").strip():
+    mode = remote_mode(config)
+    if mode == "local" and not remote_local_token(config).strip():
         return "Remote token is required. Set it in the config screen or press g on the TOKEN field to generate one."
+    server = remote_server_config(config)
+    if mode == "server" and (not remote_server_url(config) or not str(server.get("token") or "").strip()):
+        return "Remote server URL and client token are required in server mode."
     error = _check_runtime()
     if error is not None:
         return error
@@ -626,26 +561,52 @@ def run_remote_session(config: dict[str, Any], args: list[str]) -> str | None:
     )
     _append_log_event(f"registered remote session id={session_name} cwd={os.getcwd()} args={len(args)}")
 
-    error = ensure_remote_hub(config)
-    if error is not None:
-        return error
+    if mode == "server":
+        server_url = remote_server_url(config)
+        if server.get("auto_connect", True):
+            try:
+                from .remote_client import ensure_remote_client_connector
+            except ImportError:
+                return missing_extra_message("remote-client", "websockets, pexpect")
+            error = ensure_remote_client_connector(config)
+            if error is not None:
+                return error
+        print("ccode remote session started\n")
+        print("Server:")
+        print(f"  {server_url}")
+        print(f"  device: {server.get('device_name') or '<unnamed>'} ({server.get('device_id') or '<unset>'})\n")
+        print("Tmux session:")
+        print(f"  {session_name}\n")
+        if server_url.startswith("http://"):
+            print("Security warning:")
+            print("  Server URL uses plain HTTP/WS. Use HTTPS/WSS in production.\n")
+        if server.get("auto_connect", True):
+            print("This terminal will attach to this tmux session. The connector stays running independently.")
+            print("Detach with Ctrl+B then D. Browser users can choose this device/session from the server.\n")
+        else:
+            print("This terminal will attach to this tmux session. Start the connector with `ccode-remote client start`.")
+            print("Detach with Ctrl+B then D.\n")
+    else:
+        error = ensure_remote_hub(config)
+        if error is not None:
+            return error
 
-    host = str(remote.get("host") or "127.0.0.1")
-    url = remote_url(config, include_token=False)
-    base_url = remote_url(config, include_token=False).rstrip("/")
+        host, _port = remote_host_port(config)
+        url = remote_url(config, include_token=False)
+        base_url = remote_url(config, include_token=False).rstrip("/")
 
-    print("ccode remote session started\n")
-    print("Local:")
-    print(f"  {url}\n")
-    print("Cloudflare Tunnel:")
-    print(f"  cloudflared tunnel --url {base_url}\n")
-    print("Tmux session:")
-    print(f"  {session_name}\n")
-    if host == "0.0.0.0":
-        print("Security warning:")
-        print("  Listening on 0.0.0.0 exposes all remote sessions to your network. Protect the access URL and token.\n")
-    print("This terminal will attach to this tmux session. The web hub stays running independently.")
-    print("Detach with Ctrl+B then D. Browser users can choose this session from the session list.\n")
+        print("ccode remote session started\n")
+        print("Local:")
+        print(f"  {url}\n")
+        print("Cloudflare Tunnel:")
+        print(f"  cloudflared tunnel --url {base_url}\n")
+        print("Tmux session:")
+        print(f"  {session_name}\n")
+        if host == "0.0.0.0":
+            print("Security warning:")
+            print("  Listening on 0.0.0.0 exposes all remote sessions to your network. Protect the access URL and token.\n")
+        print("This terminal will attach to this tmux session. The web hub stays running independently.")
+        print("Detach with Ctrl+B then D. Browser users can choose this session from the session list.\n")
 
     try:
         return _attach_tmux_session(session_name)
