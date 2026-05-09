@@ -1,0 +1,170 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+main {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #090b10;
+  color: #e8eef8;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 12px;
+}
+
+header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+h1 {
+  font-size: 18px;
+  margin: 0 0 4px;
+}
+
+p {
+  color: #8fa1bd;
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+button,
+input {
+  border-radius: 8px;
+  color: #e8eef8;
+  padding: 8px 12px;
+}
+
+button {
+  background: #172033;
+  border: 1px solid #2e4266;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #21304a;
+}
+
+input {
+  background: #05070a;
+  border: 1px solid #1c2638;
+  flex: 1;
+  min-width: 220px;
+}
+
+button[hidden],
+[hidden] {
+  display: none !important;
+}
+
+.token-panel {
+  background: linear-gradient(180deg, #111827, #0b111d);
+  border: 1px solid #24344f;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: auto;
+  max-width: 520px;
+  padding: 18px;
+  width: 100%;
+}
+
+.token-panel label {
+  color: #8fa1bd;
+}
+
+.token-row {
+  display: flex;
+  gap: 8px;
+}
+
+#session-list {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  overflow: auto;
+  padding-bottom: 4px;
+}
+
+.session-card {
+  align-items: flex-start;
+  background: linear-gradient(180deg, #111827, #0b111d);
+  border: 1px solid #24344f;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 150px;
+  padding: 16px;
+  text-align: left;
+}
+
+.session-card strong {
+  font-size: 16px;
+}
+
+.session-card span,
+.session-card small {
+  color: #8fa1bd;
+  overflow-wrap: anywhere;
+}
+
+.session-card code {
+  background: #05070a;
+  border: 1px solid #1c2638;
+  border-radius: 8px;
+  color: #b9d4ff;
+  overflow-wrap: anywhere;
+  padding: 6px 8px;
+  width: 100%;
+}
+
+.empty {
+  align-items: center;
+  border: 1px dashed #2e4266;
+  border-radius: 14px;
+  color: #8fa1bd;
+  display: flex;
+  justify-content: center;
+  min-height: 180px;
+  padding: 24px;
+  text-align: center;
+}
+
+#terminal {
+  background: #05070a;
+  border: 1px solid #1c2638;
+  border-radius: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px;
+}
+
+#terminal:focus-within {
+  outline: 2px solid #4f8cff;
+}
+
+.xterm {
+  height: 100%;
+}

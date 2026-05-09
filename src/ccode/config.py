@@ -21,6 +21,15 @@ DEFAULT_TOGGLES: dict[str, str] = {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
 }
 
+DEFAULT_REMOTE: dict[str, Any] = {
+    "enabled": False,
+    "host": "127.0.0.1",
+    "port": 8765,
+    "token": "",
+    "session_name": "ccode-claude",
+    "reuse_session": True,
+}
+
 _ENV_SCHEMA: dict[str, Any] = {}
 _SCHEMA_KEYS: list[str] = []
 
@@ -65,6 +74,7 @@ def default_config() -> dict[str, Any]:
             "haiku": {"owned_by": None, "id": None},
         },
         "toggles": DEFAULT_TOGGLES.copy(),
+        "remote": DEFAULT_REMOTE.copy(),
     }
 
 
@@ -113,6 +123,27 @@ def load_config() -> dict[str, Any]:
                     new_toggles[k] = v
         if new_toggles:
             config["toggles"] = new_toggles
+
+    remote = data.get("remote")
+    if isinstance(remote, dict):
+        enabled = remote.get("enabled")
+        if isinstance(enabled, bool):
+            config["remote"]["enabled"] = enabled
+        host = remote.get("host")
+        if isinstance(host, str):
+            config["remote"]["host"] = host
+        port = remote.get("port")
+        if isinstance(port, int):
+            config["remote"]["port"] = port
+        token = remote.get("token")
+        if isinstance(token, str):
+            config["remote"]["token"] = token
+        session_name = remote.get("session_name")
+        if isinstance(session_name, str):
+            config["remote"]["session_name"] = session_name
+        reuse_session = remote.get("reuse_session")
+        if isinstance(reuse_session, bool):
+            config["remote"]["reuse_session"] = reuse_session
 
     return config
 

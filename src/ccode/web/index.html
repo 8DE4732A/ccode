@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ccode remote</title>
+    <link rel="stylesheet" href="assets/xterm.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>ccode remote</h1>
+          <p id="status">enter token</p>
+        </div>
+        <div class="actions">
+          <button id="back" type="button" hidden>Sessions</button>
+          <button id="refresh" type="button" hidden>Refresh</button>
+          <button id="change-token" type="button" hidden>Change token</button>
+          <button id="focus" type="button" hidden>Focus terminal</button>
+          <button id="reconnect" type="button" hidden>Reconnect</button>
+        </div>
+      </header>
+      <form id="token-form" class="token-panel">
+        <label for="token-input">Remote token</label>
+        <div class="token-row">
+          <input id="token-input" type="password" autocomplete="current-password" placeholder="Paste your configured token" />
+          <button type="submit">Continue</button>
+        </div>
+      </form>
+      <section id="session-list" hidden></section>
+      <div id="terminal" tabindex="0" hidden></div>
+    </main>
+    <script src="assets/xterm.js"></script>
+    <script src="assets/addon-fit.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

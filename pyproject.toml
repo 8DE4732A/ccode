@@ -1,6 +1,6 @@
 [project]
 name = "ccoding"
-version = "0.1.0"
+version = "0.2.0"
 description = "Curses-based Claude Code launcher"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -15,6 +15,9 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
 ]
 dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pexpect; sys_platform != 'win32'",
     "windows-curses; sys_platform == 'win32'",
 ]
 
@@ -25,6 +28,7 @@ Issues = "https://github.com/8DE4732A/ccode/issues"
 
 [project.scripts]
 ccode = "ccode.cli:main"
+ccode-remote = "ccode.remote_cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -32,3 +36,4 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ccode"]
+artifacts = ["src/ccode/web/**"]

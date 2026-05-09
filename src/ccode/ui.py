@@ -3,6 +3,8 @@ from __future__ import annotations
 import curses
 import curses.ascii
 import random
+import secrets
+from typing import Any
 from .api import (
     build_models_by_owner,
     fetch_models,
@@ -31,10 +33,17 @@ from .logo import (
     render_style_rain,
     render_style_wave,
 )
+from .remote import remote_url, run_remote_server
 
 # 配置界面 field 类型标识
 _FIELD_BASE_URL = "base_url"
 _FIELD_API_KEY = "api_key"
+_FIELD_REMOTE_ENABLED = "remote.enabled"
+_FIELD_REMOTE_HOST = "remote.host"
+_FIELD_REMOTE_PORT = "remote.port"
+_FIELD_REMOTE_SESSION_NAME = "remote.session_name"
+_FIELD_REMOTE_REUSE_SESSION = "remote.reuse_session"
+_FIELD_REMOTE_TOKEN = "remote.token"
 _FIELD_TOGGLE = "toggle:"      # 前缀 + key
 _FIELD_ADD_TOGGLE = "__add__"  # 新增行
 
@@ -61,6 +70,7 @@ class CursesApp:
     def __init__(self, args: list[str]) -> None:
         self.args = args
         self.config = load_config()
+        self.remote_enabled = bool(self.config.get("remote", {}).get("enabled", False))
         self.models_data: list[dict[str, str]] | None = None
         self.models_by_owner: dict[str, list[str]] = {}
         self.status_message = ""
@@ -69,9 +79,14 @@ class CursesApp:
         self.main_focus_field = 0
         self.config_focus_index = 0
         # 文本字段光标位置
+        remote = self.config.get("remote", {})
         self.config_cursor: dict[str, int] = {
             _FIELD_BASE_URL: len(self.config.get("base_url", "")),
             _FIELD_API_KEY: len(self.config.get("api_key", "")),
+            _FIELD_REMOTE_HOST: len(str(remote.get("host", ""))),
+            _FIELD_REMOTE_PORT: len(str(remote.get("port", ""))),
+            _FIELD_REMOTE_SESSION_NAME: len(str(remote.get("session_name", ""))),
+            _FIELD_REMOTE_TOKEN: len(str(remote.get("token", ""))),
         }
         # 新增 toggle 时 key / value 的输入状态
         self._add_phase: int = 0       # 0=未激活, 1=输入key, 2=输入value
@@ -102,7 +117,16 @@ class CursesApp:
     # ------------------------------------------------------------------
     def _config_fields(self) -> list[str]:
         toggles = self.config.get("toggles", {})
-        fields = [_FIELD_BASE_URL, _FIELD_API_KEY]
+        fields = [
+            _FIELD_BASE_URL,
+            _FIELD_API_KEY,
+            _FIELD_REMOTE_ENABLED,
+            _FIELD_REMOTE_HOST,
+            _FIELD_REMOTE_PORT,
+            _FIELD_REMOTE_SESSION_NAME,
+            _FIELD_REMOTE_REUSE_SESSION,
+            _FIELD_REMOTE_TOKEN,
+        ]
         for k in toggles:
             fields.append(f"{_FIELD_TOGGLE}{k}")
         fields.append(_FIELD_ADD_TOGGLE)
@@ -231,8 +255,12 @@ class CursesApp:
             row_width = len(label) + 1 + len(owner) + len(" | ") + len(model_id)
             max_row = max(max_row, row_width)
             rows.append((label, owner, model_id, row_width))
-        hint = "enter to start, c to config, b to refresh, a/d to change owned_by/model_id, q to quit"
-        content_width = max(max_row, len(hint), len(self.status_message))
+        remote = self.config.get("remote", {})
+        remote_line = "REMOTE: on  " + remote_url(self.config) if self.remote_enabled else "REMOTE: off"
+        if str(remote.get("host", "")) == "0.0.0.0":
+            remote_line += "  [warning: network exposed]"
+        hint = "enter to start, r remote on/off, c config, b refresh, a/d change model, q quit"
+        content_width = max(max_row, len(remote_line), len(hint), len(self.status_message))
         x = max(2, (width - content_width) // 2)
         for idx, (label, owner, model_id, _row_width) in enumerate(rows):
             addstr_safe(stdscr, y, x, label)
@@ -254,6 +282,8 @@ class CursesApp:
             )
             addstr_safe(stdscr, y, model_x, model_id, model_attr)
             y += 1
+        y += 1
+        addstr_safe(stdscr, y, x, remote_line)
         y += 1
         addstr_safe(stdscr, y, x, hint)
         y += 1
@@ -296,6 +326,32 @@ class CursesApp:
         addstr_safe(stdscr, y, api_x, api_display, curses.A_REVERSE if api_focus else 0)
         api_y = y
         y += 1
+
+        y += 1
+        addstr_safe(stdscr, y, x, "─── Remote/Web  [space/enter]=toggle  [g]=generate token ─────────────")
+        y += 1
+        remote = self.config.setdefault("remote", {})
+        remote_rows: dict[str, tuple[int, int, str]] = {}
+        remote_items = [
+            (_FIELD_REMOTE_ENABLED, "DEFAULT REMOTE:", "on" if remote.get("enabled") else "off"),
+            (_FIELD_REMOTE_HOST, "HOST:", str(remote.get("host", ""))),
+            (_FIELD_REMOTE_PORT, "PORT:", str(remote.get("port", ""))),
+            (_FIELD_REMOTE_SESSION_NAME, "PREFIX:", str(remote.get("session_name", ""))),
+            (_FIELD_REMOTE_REUSE_SESSION, "REUSE:", "on" if remote.get("reuse_session") else "off"),
+            (_FIELD_REMOTE_TOKEN, "TOKEN:", mask_secret(str(remote.get("token", "")))),
+        ]
+        for field, label, display in remote_items:
+            is_focused = focused == field
+            label_x = x
+            value_x = x + 18
+            if field == _FIELD_REMOTE_TOKEN and is_focused:
+                display = str(remote.get("token", ""))
+            addstr_safe(stdscr, y, label_x, label)
+            addstr_safe(stdscr, y, value_x, display or "<unset>", curses.A_REVERSE if is_focused else 0)
+            if field == _FIELD_REMOTE_HOST and str(remote.get("host", "")) == "0.0.0.0":
+                addstr_safe(stdscr, y, value_x + len(display or "<unset>") + 2, "warning: exposes local terminal")
+            remote_rows[field] = (y, value_x, display)
+            y += 1
 
         y += 1
         addstr_safe(stdscr, y, x, "─── Toggles (env vars)  [n]=new  [d]=delete  [ESC]=save & back ────────")
@@ -388,6 +444,15 @@ class CursesApp:
         elif focused == _FIELD_API_KEY:
             cursor_pos = min(self.config_cursor.get(_FIELD_API_KEY, 0), len(api_key_value))
             self.place_cursor(stdscr, api_y, api_x + cursor_pos)
+        elif focused in (
+            _FIELD_REMOTE_HOST,
+            _FIELD_REMOTE_PORT,
+            _FIELD_REMOTE_SESSION_NAME,
+            _FIELD_REMOTE_TOKEN,
+        ):
+            row_y, row_x, display = remote_rows[focused]
+            cursor_pos = min(self.config_cursor.get(focused, 0), len(display))
+            self.place_cursor(stdscr, row_y, row_x + cursor_pos)
         elif focused == _FIELD_ADD_TOGGLE and self._add_phase == 1:
             self.place_cursor(stdscr, add_y, x + len("  KEY:   ") + self._add_key_cursor)
         elif focused == _FIELD_ADD_TOGGLE and self._add_phase == 2:
@@ -444,9 +509,33 @@ class CursesApp:
             self.config_focus_index = min(len(fields) - 1, self.config_focus_index + 1)
             return
 
+        if focused in (_FIELD_REMOTE_ENABLED, _FIELD_REMOTE_REUSE_SESSION):
+            if key in (curses.KEY_ENTER, 10, 13, ord(" ")):
+                remote = self.config.setdefault("remote", {})
+                remote_key = "enabled" if focused == _FIELD_REMOTE_ENABLED else "reuse_session"
+                remote[remote_key] = not bool(remote.get(remote_key, False))
+                save_config(self.config)
+            return
+
+        if focused == _FIELD_REMOTE_TOKEN and key in (ord("g"), ord("G")):
+            token = secrets.token_urlsafe(24)
+            self.config.setdefault("remote", {})["token"] = token
+            self.config_cursor[_FIELD_REMOTE_TOKEN] = len(token)
+            save_config(self.config)
+            self.status_message = "Remote token regenerated."
+            return
+
         # 文本字段
         if focused in (_FIELD_BASE_URL, _FIELD_API_KEY):
             self._handle_text_field(focused, key)
+            return
+        if focused in (
+            _FIELD_REMOTE_HOST,
+            _FIELD_REMOTE_PORT,
+            _FIELD_REMOTE_SESSION_NAME,
+            _FIELD_REMOTE_TOKEN,
+        ):
+            self._handle_remote_text_field(focused, key)
             return
 
         # Toggle 行
@@ -490,6 +579,28 @@ class CursesApp:
         cfg_key = field  # base_url 或 api_key
         value = self.config.get(cfg_key, "")
         cursor = min(self.config_cursor.get(field, 0), len(value))
+        value, cursor = self._edit_string(value, cursor, key)
+        self.config[cfg_key] = value
+        self.config_cursor[field] = cursor
+
+    def _handle_remote_text_field(self, field: str, key: int) -> None:
+        remote = self.config.setdefault("remote", {})
+        remote_key = field.removeprefix("remote.")
+        value = str(remote.get(remote_key, ""))
+        cursor = min(self.config_cursor.get(field, 0), len(value))
+        new_value, cursor = self._edit_string(value, cursor, key)
+        if field == _FIELD_REMOTE_PORT:
+            if new_value.isdigit():
+                remote[remote_key] = int(new_value)
+                self.status_message = ""
+            else:
+                self.status_message = "Remote port must be an integer."
+                return
+        else:
+            remote[remote_key] = new_value
+        self.config_cursor[field] = cursor
+
+    def _edit_string(self, value: str, cursor: int, key: int) -> tuple[str, int]:
         if key == curses.KEY_LEFT:
             cursor = max(0, cursor - 1)
         elif key == curses.KEY_RIGHT:
@@ -498,12 +609,10 @@ class CursesApp:
             if cursor > 0:
                 value = value[:cursor - 1] + value[cursor:]
                 cursor -= 1
-                self.config[cfg_key] = value
         elif 0 <= key <= 255 and curses.ascii.isprint(key):
             value = value[:cursor] + chr(key) + value[cursor:]
             cursor += 1
-            self.config[cfg_key] = value
-        self.config_cursor[field] = cursor
+        return value, cursor
 
     def _start_edit_toggle_value(self, tk: str) -> None:
         """激活 add 流程的 phase 2 来就地编辑已有 toggle 的值（复用输入框）。"""
@@ -667,6 +776,9 @@ class CursesApp:
         if key in (ord("b"), ord("B")):
             self.refresh_models()
             return
+        if key in (ord("r"), ord("R")):
+            self.remote_enabled = not self.remote_enabled
+            return
         if key in (ord("q"), ord("Q")):
             self.should_exit = True
             return
@@ -676,7 +788,10 @@ class CursesApp:
             if error:
                 self.status_message = error
                 return
-            error = self.launch_with_curses(stdscr)
+            if self.remote_enabled:
+                error = self.launch_remote_with_curses(stdscr)
+            else:
+                error = self.launch_with_curses(stdscr)
             if error:
                 self.status_message = error
             else:
@@ -711,11 +826,11 @@ class CursesApp:
         new_id = models[(index + direction) % len(models)]
         update_model_id(self.config, key, owner, new_id)
 
-    def launch_with_curses(self, stdscr: curses.window) -> str | None:
+    def _run_outside_curses(self, stdscr: curses.window, launcher: Any) -> str | None:
         try:
             curses.def_prog_mode()
             curses.endwin()
-            return launch_claude(self.config, self.args)
+            return launcher(self.config, self.args)
         finally:
             curses.reset_prog_mode()
             try:
@@ -725,3 +840,9 @@ class CursesApp:
             stdscr.keypad(True)
             stdscr.clear()
             stdscr.refresh()
+
+    def launch_with_curses(self, stdscr: curses.window) -> str | None:
+        return self._run_outside_curses(stdscr, launch_claude)
+
+    def launch_remote_with_curses(self, stdscr: curses.window) -> str | None:
+        return self._run_outside_curses(stdscr, run_remote_server)

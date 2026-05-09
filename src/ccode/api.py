@@ -125,6 +125,10 @@ def validate_launch_requirements(config: dict[str, Any]) -> str | None:
     return None
 
 
+def build_claude_command(args: list[str]) -> list[str]:
+    return ["claude", *args]
+
+
 def launch_claude(config: dict[str, Any], args: list[str]) -> str | None:
     base_url = config.get("base_url", "").strip()
     api_key = config.get("api_key", "").strip()
@@ -132,7 +136,7 @@ def launch_claude(config: dict[str, Any], args: list[str]) -> str | None:
         return "Missing base URL or API key."
     env = build_env(config, masked=False)
     try:
-        subprocess.run(["claude", *args], check=True, env=env)
+        subprocess.run(build_claude_command(args), check=True, env=env)
     except FileNotFoundError:
         return "Could not find 'claude' on PATH."
     except subprocess.CalledProcessError as exc:
