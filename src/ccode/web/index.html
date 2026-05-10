@@ -14,7 +14,8 @@
           <h1>ccode remote</h1>
           <p id="status">enter token</p>
         </div>
-        <div class="actions">
+        <button id="actions-toggle" class="actions-toggle" type="button" hidden>Menu</button>
+        <div id="actions" class="actions">
           <button id="back" type="button" hidden>Sessions</button>
           <button id="refresh" type="button" hidden>Refresh</button>
           <button id="change-token" type="button" hidden>Change token</button>
@@ -31,6 +32,21 @@
       </form>
       <section id="session-list" hidden></section>
       <div id="terminal" tabindex="0" hidden></div>
+      <div id="mobile-keybar" class="mobile-keybar" hidden>
+        <button type="button" data-zoom="-1">A−</button>
+        <button type="button" data-zoom="1">A+</button>
+        <button type="button" data-sequence="tab">Tab</button>
+        <button type="button" data-sequence="esc">Esc</button>
+        <button type="button" data-sequence="ctrl-c">Ctrl+C</button>
+        <button type="button" data-sequence="ctrl-d">Ctrl+D</button>
+        <button type="button" data-sequence="ctrl-l">Ctrl+L</button>
+        <button type="button" data-sequence="enter">Enter</button>
+        <button type="button" data-sequence="backspace">⌫</button>
+        <button type="button" data-sequence="up">↑</button>
+        <button type="button" data-sequence="down">↓</button>
+        <button type="button" data-sequence="left">←</button>
+        <button type="button" data-sequence="right">→</button>
+      </div>
     </main>
     <script src="assets/xterm.js"></script>
     <script src="assets/addon-fit.js"></script>

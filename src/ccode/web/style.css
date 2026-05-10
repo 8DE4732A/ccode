@@ -10,6 +10,11 @@ main {
   margin: 0;
 }
 
+:root {
+  --keyboard-inset: 0px;
+  --viewport-height: 100vh;
+}
+
 body {
   background: #090b10;
   color: #e8eef8;
@@ -45,6 +50,10 @@ p {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.actions-toggle {
+  display: none;
 }
 
 button,
@@ -168,12 +177,105 @@ button[hidden],
   min-height: 0;
   overflow: hidden;
   padding: 12px;
+  touch-action: none;
 }
 
 #terminal:focus-within {
   outline: 2px solid #4f8cff;
 }
 
+.mobile-keybar {
+  display: none;
+}
+
 .xterm {
   height: 100%;
+}
+
+@media (max-width: 720px), (pointer: coarse) {
+  html,
+  body,
+  main {
+    height: var(--viewport-height);
+    overflow: hidden;
+  }
+
+  main {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  header {
+    align-items: flex-start;
+    gap: 8px;
+    position: relative;
+  }
+
+  .actions-toggle:not([hidden]) {
+    display: block;
+    margin-left: auto;
+  }
+
+  .actions {
+    background: rgba(9, 11, 16, 0.98);
+    border: 1px solid #1c2638;
+    border-radius: 12px;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.38);
+    display: none;
+    flex-direction: column;
+    min-width: 180px;
+    padding: 8px;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 20;
+  }
+
+  .actions.open {
+    display: flex;
+  }
+
+  .actions button {
+    text-align: left;
+    width: 100%;
+  }
+
+  #session-list {
+    overflow: auto;
+  }
+
+  #terminal {
+    margin-bottom: 58px;
+    min-height: 120px;
+    padding: 8px;
+  }
+
+  .mobile-keybar:not([hidden]) {
+    background: rgba(9, 11, 16, 0.96);
+    border: 1px solid #1c2638;
+    border-radius: 12px;
+    bottom: calc(8px + var(--keyboard-inset));
+    display: flex;
+    gap: 6px;
+    left: 8px;
+    max-width: calc(100vw - 16px);
+    overflow-x: auto;
+    padding: 8px;
+    position: fixed;
+    right: 8px;
+    scrollbar-width: none;
+    z-index: 10;
+  }
+
+  .mobile-keybar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-keybar button {
+    flex: 0 0 auto;
+    min-width: 48px;
+    padding: 10px 12px;
+    touch-action: manipulation;
+    user-select: none;
+  }
 }

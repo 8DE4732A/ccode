@@ -6,6 +6,11 @@
 
 ![](screenshot.png)
 
+<p align="center">
+  <img src="screenshot_mobile1.jpeg" alt="Mobile remote terminal screenshot 1" width="45%" />
+  <img src="screenshot_mobile2.jpeg" alt="Mobile remote terminal screenshot 2" width="45%" />
+</p>
+
 ## 功能特点
 
 - 终端 curses UI，键盘全操作
@@ -75,6 +80,15 @@ ccode-remote     # 查看 remote hub / client connector 状态
 ## 开发者运行方式
 
 需要 Python >=3.10。基础 TUI 不再强制安装 remote 依赖。Remote/Web 模式需要额外依赖，并需要系统中已安装 `tmux` 和 `claude`；Windows 建议在 WSL 中使用 remote 模式。
+
+使用 Remote/Web 时，推荐在 `~/.tmux.conf` 中配置：
+
+```tmux
+set -g history-limit 50000
+set -g mouse on
+set -g default-terminal "screen-256color"
+set-option -ga terminal-overrides ",xterm-256color:Tc"
+```
 
 ```bash
 git clone https://github.com/8DE4732A/ccode
