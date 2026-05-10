@@ -158,11 +158,11 @@ def create_server_app() -> Any:
 
     @app.get("/app.js")
     async def app_js() -> Response:
-        return Response(asset_text("app.js"), media_type="application/javascript")
+        return Response(asset_text("app.js"), media_type="application/javascript", headers={"Cache-Control": "no-store"})
 
     @app.get("/style.css")
     async def style_css() -> Response:
-        return Response(asset_text("style.css"), media_type="text/css")
+        return Response(asset_text("style.css"), media_type="text/css", headers={"Cache-Control": "no-store"})
 
     @app.get("/assets/{asset_name}")
     async def web_asset(asset_name: str) -> Response:
@@ -174,7 +174,7 @@ def create_server_app() -> Any:
         media_type = media_types.get(asset_name)
         if media_type is None:
             return Response(status_code=404)
-        return Response(web_asset_text(asset_name), media_type=media_type)
+        return Response(web_asset_text(asset_name), media_type=media_type, headers={"Cache-Control": "no-store"})
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
