@@ -42,9 +42,11 @@ _FIELD_REMOTE_ENABLED = "remote.enabled"
 _FIELD_REMOTE_MODE = "remote.mode"
 _FIELD_REMOTE_LOCAL_HOST = "remote.local.host"
 _FIELD_REMOTE_LOCAL_PORT = "remote.local.port"
-_FIELD_REMOTE_LOCAL_TOKEN = "remote.local.token"
+_FIELD_REMOTE_LOCAL_APP_ID = "remote.local.appId"
+_FIELD_REMOTE_LOCAL_APP_KEY = "remote.local.appKey"
 _FIELD_REMOTE_SERVER_URL = "remote.server.url"
-_FIELD_REMOTE_SERVER_TOKEN = "remote.server.token"
+_FIELD_REMOTE_SERVER_APP_ID = "remote.server.appId"
+_FIELD_REMOTE_SERVER_APP_KEY = "remote.server.appKey"
 _FIELD_REMOTE_SERVER_DEVICE_NAME = "remote.server.device_name"
 _FIELD_REMOTE_SERVER_DEVICE_ID = "remote.server.device_id"
 _FIELD_REMOTE_SERVER_AUTO_CONNECT = "remote.server.auto_connect"
@@ -93,9 +95,11 @@ class CursesApp:
             _FIELD_API_KEY: len(self.config.get("api_key", "")),
             _FIELD_REMOTE_LOCAL_HOST: len(str(local.get("host", ""))),
             _FIELD_REMOTE_LOCAL_PORT: len(str(local.get("port", ""))),
-            _FIELD_REMOTE_LOCAL_TOKEN: len(str(local.get("token", ""))),
+            _FIELD_REMOTE_LOCAL_APP_ID: len(str(local.get("appId", ""))),
+            _FIELD_REMOTE_LOCAL_APP_KEY: len(str(local.get("appKey", ""))),
             _FIELD_REMOTE_SERVER_URL: len(str(server.get("url", ""))),
-            _FIELD_REMOTE_SERVER_TOKEN: len(str(server.get("token", ""))),
+            _FIELD_REMOTE_SERVER_APP_ID: len(str(server.get("appId", ""))),
+            _FIELD_REMOTE_SERVER_APP_KEY: len(str(server.get("appKey", ""))),
             _FIELD_REMOTE_SERVER_DEVICE_NAME: len(str(server.get("device_name", ""))),
             _FIELD_REMOTE_SERVER_DEVICE_ID: len(str(server.get("device_id", ""))),
             _FIELD_REMOTE_SESSION_NAME: len(str(remote.get("session_name", ""))),
@@ -136,9 +140,11 @@ class CursesApp:
             _FIELD_REMOTE_MODE,
             _FIELD_REMOTE_LOCAL_HOST,
             _FIELD_REMOTE_LOCAL_PORT,
-            _FIELD_REMOTE_LOCAL_TOKEN,
+            _FIELD_REMOTE_LOCAL_APP_ID,
+            _FIELD_REMOTE_LOCAL_APP_KEY,
             _FIELD_REMOTE_SERVER_URL,
-            _FIELD_REMOTE_SERVER_TOKEN,
+            _FIELD_REMOTE_SERVER_APP_ID,
+            _FIELD_REMOTE_SERVER_APP_KEY,
             _FIELD_REMOTE_SERVER_DEVICE_NAME,
             _FIELD_REMOTE_SERVER_DEVICE_ID,
             _FIELD_REMOTE_SERVER_AUTO_CONNECT,
@@ -355,7 +361,7 @@ class CursesApp:
         y += 1
 
         y += 1
-        addstr_safe(stdscr, y, x, "─── Remote/Web  [space/enter]=toggle  [g]=generate token ─────────────")
+        addstr_safe(stdscr, y, x, "─── Remote/Web  [space/enter]=toggle  [g]=generate app id/key ───────")
         y += 1
         remote = self.config.setdefault("remote", {})
         local = remote.setdefault("local", {})
@@ -366,9 +372,11 @@ class CursesApp:
             (_FIELD_REMOTE_MODE, "MODE:", str(remote.get("mode", "local"))),
             (_FIELD_REMOTE_LOCAL_HOST, "LOCAL HOST:", str(local.get("host", ""))),
             (_FIELD_REMOTE_LOCAL_PORT, "LOCAL PORT:", str(local.get("port", ""))),
-            (_FIELD_REMOTE_LOCAL_TOKEN, "LOCAL TOKEN:", mask_secret(str(local.get("token", "")))),
+            (_FIELD_REMOTE_LOCAL_APP_ID, "LOCAL APP ID:", str(local.get("appId", ""))),
+            (_FIELD_REMOTE_LOCAL_APP_KEY, "LOCAL APP KEY:", mask_secret(str(local.get("appKey", "")))),
             (_FIELD_REMOTE_SERVER_URL, "SERVER URL:", str(server.get("url", ""))),
-            (_FIELD_REMOTE_SERVER_TOKEN, "CLIENT TOKEN:", mask_secret(str(server.get("token", "")))),
+            (_FIELD_REMOTE_SERVER_APP_ID, "CLIENT APP ID:", str(server.get("appId", ""))),
+            (_FIELD_REMOTE_SERVER_APP_KEY, "CLIENT APP KEY:", mask_secret(str(server.get("appKey", "")))),
             (_FIELD_REMOTE_SERVER_DEVICE_NAME, "DEVICE NAME:", str(server.get("device_name", ""))),
             (_FIELD_REMOTE_SERVER_DEVICE_ID, "DEVICE ID:", str(server.get("device_id", ""))),
             (_FIELD_REMOTE_SERVER_AUTO_CONNECT, "AUTO CONNECT:", "on" if server.get("auto_connect") else "off"),
@@ -379,10 +387,10 @@ class CursesApp:
             is_focused = focused == field
             label_x = x
             value_x = x + 22
-            if field == _FIELD_REMOTE_LOCAL_TOKEN and is_focused:
-                display = str(local.get("token", ""))
-            if field == _FIELD_REMOTE_SERVER_TOKEN and is_focused:
-                display = str(server.get("token", ""))
+            if field == _FIELD_REMOTE_LOCAL_APP_KEY and is_focused:
+                display = str(local.get("appKey", ""))
+            if field == _FIELD_REMOTE_SERVER_APP_KEY and is_focused:
+                display = str(server.get("appKey", ""))
             addstr_safe(stdscr, y, label_x, label)
             addstr_safe(stdscr, y, value_x, display or "<unset>", curses.A_REVERSE if is_focused else 0)
             if field == _FIELD_REMOTE_LOCAL_HOST and str(local.get("host", "")) == "0.0.0.0":
@@ -484,9 +492,11 @@ class CursesApp:
         elif focused in (
             _FIELD_REMOTE_LOCAL_HOST,
             _FIELD_REMOTE_LOCAL_PORT,
-            _FIELD_REMOTE_LOCAL_TOKEN,
+            _FIELD_REMOTE_LOCAL_APP_ID,
+            _FIELD_REMOTE_LOCAL_APP_KEY,
             _FIELD_REMOTE_SERVER_URL,
-            _FIELD_REMOTE_SERVER_TOKEN,
+            _FIELD_REMOTE_SERVER_APP_ID,
+            _FIELD_REMOTE_SERVER_APP_KEY,
             _FIELD_REMOTE_SERVER_DEVICE_NAME,
             _FIELD_REMOTE_SERVER_DEVICE_ID,
             _FIELD_REMOTE_SESSION_NAME,
@@ -569,14 +579,14 @@ class CursesApp:
                 save_config(self.config)
             return
 
-        if focused in (_FIELD_REMOTE_LOCAL_TOKEN, _FIELD_REMOTE_SERVER_TOKEN) and key in (ord("g"), ord("G")):
-            token = secrets.token_urlsafe(24)
+        if focused in (_FIELD_REMOTE_LOCAL_APP_ID, _FIELD_REMOTE_SERVER_APP_ID, _FIELD_REMOTE_LOCAL_APP_KEY, _FIELD_REMOTE_SERVER_APP_KEY) and key in (ord("g"), ord("G")):
+            value = f"app_{secrets.token_urlsafe(9)}" if focused in (_FIELD_REMOTE_LOCAL_APP_ID, _FIELD_REMOTE_SERVER_APP_ID) else secrets.token_urlsafe(32)
             remote = self.config.setdefault("remote", {})
-            target = remote.setdefault("local" if focused == _FIELD_REMOTE_LOCAL_TOKEN else "server", {})
-            target["token"] = token
-            self.config_cursor[focused] = len(token)
+            target = remote.setdefault("local" if focused in (_FIELD_REMOTE_LOCAL_APP_ID, _FIELD_REMOTE_LOCAL_APP_KEY) else "server", {})
+            target["appId" if focused in (_FIELD_REMOTE_LOCAL_APP_ID, _FIELD_REMOTE_SERVER_APP_ID) else "appKey"] = value
+            self.config_cursor[focused] = len(value)
             save_config(self.config)
-            self.status_message = "Remote token regenerated."
+            self.status_message = "Remote app credential regenerated."
             return
 
         # 文本字段
@@ -586,9 +596,11 @@ class CursesApp:
         if focused in (
             _FIELD_REMOTE_LOCAL_HOST,
             _FIELD_REMOTE_LOCAL_PORT,
-            _FIELD_REMOTE_LOCAL_TOKEN,
+            _FIELD_REMOTE_LOCAL_APP_ID,
+            _FIELD_REMOTE_LOCAL_APP_KEY,
             _FIELD_REMOTE_SERVER_URL,
-            _FIELD_REMOTE_SERVER_TOKEN,
+            _FIELD_REMOTE_SERVER_APP_ID,
+            _FIELD_REMOTE_SERVER_APP_KEY,
             _FIELD_REMOTE_SERVER_DEVICE_NAME,
             _FIELD_REMOTE_SERVER_DEVICE_ID,
             _FIELD_REMOTE_SESSION_NAME,

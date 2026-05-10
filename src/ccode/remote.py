@@ -15,20 +15,20 @@ from .remote_common import (
     _new_session_id,
     _sanitize_session_name,
     _utc_now,
+    AuthResult,
     asset_text,
-    auth_token_matches,
     file_lock,
     missing_extra_message,
+    remote_local_app_id,
+    remote_local_app_key,
     remote_local_host_port,
-    remote_local_token,
     remote_local_url,
     remote_mode,
     remote_server_config,
     remote_server_url,
     rotate_log,
-    token_matches,
+    verify_auth_payload,
     web_asset_text,
-    websocket_auth_token,
 )
 
 REMOTE_SESSIONS_PATH = CONFIG_DIR / "remote_sessions.json"
@@ -321,29 +321,33 @@ def ensure_remote_hub(config: dict[str, Any]) -> str | None:
         return f"Failed to start remote hub. See {REMOTE_SERVER_LOG_PATH} for details."
 
 
-_TOKEN_CACHE: tuple[float | None, str] = (None, "")
+_AUTH_CACHE: tuple[float | None, str, str] = (None, "", "")
 
 
-def _current_remote_token() -> str:
-    global _TOKEN_CACHE
+def _current_remote_credentials() -> tuple[str, str]:
+    global _AUTH_CACHE
     try:
         mtime = CONFIG_PATH.stat().st_mtime
     except FileNotFoundError:
         mtime = None
-    cached_mtime, cached_token = _TOKEN_CACHE
+    cached_mtime, app_id, app_key = _AUTH_CACHE
     if cached_mtime == mtime:
-        return cached_token
-    token = remote_local_token(load_config()).strip()
-    _TOKEN_CACHE = (mtime, token)
-    return token
+        return app_id, app_key
+    config = load_config()
+    app_id = remote_local_app_id(config).strip()
+    app_key = remote_local_app_key(config).strip()
+    _AUTH_CACHE = (mtime, app_id, app_key)
+    return app_id, app_key
 
 
-def _valid_token(token: str | None) -> bool:
-    return token_matches(_current_remote_token(), token)
+def _valid_auth_payload(payload: dict[str, Any], scope: str) -> AuthResult:
+    app_id, app_key = _current_remote_credentials()
+    return verify_auth_payload(app_id, app_key, payload, scope)
 
 
-def _valid_auth_token(token: str | None, authorization: str | None = None) -> bool:
-    return auth_token_matches(_current_remote_token(), token, authorization)
+def _auth_response(result: AuthResult, response_class: Any) -> Any:
+    status_code = 401 if result.error in {"auth_required", "reauth_required"} else 403
+    return response_class({"error": result.error or "auth_failed", "message": result.message}, status_code=status_code)
 
 
 async def _attach_websocket_to_session(websocket: Any, session: dict[str, Any]) -> None:
@@ -422,16 +426,18 @@ def create_app() -> Any:
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
-        return {"ok": True, "name": REMOTE_HUB_NAME, "multi_session": True}
+        return {"ok": True, "name": REMOTE_HUB_NAME, "multi_session": True, "remote_kind": "local"}
 
     @app.get("/api/sessions")
     async def sessions(
-        token: str | None = None,
-        authorization: str | None = Header(default=None),
+        x_ccode_app_id: str | None = Header(default=None),
+        x_ccode_timestamp: str | None = Header(default=None),
+        x_ccode_sign: str | None = Header(default=None),
     ) -> Response:
-        if not _valid_auth_token(token, authorization):
-            _log_event("api sessions unauthorized")
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        auth_result = _valid_auth_payload({"appId": x_ccode_app_id, "timestamp": x_ccode_timestamp, "sign": x_ccode_sign}, "local.api")
+        if not auth_result.ok:
+            _log_event(f"api sessions unauthorized error={auth_result.error}")
+            return _auth_response(auth_result, JSONResponse)
         sessions = list_remote_sessions()
         _log_event(f"api sessions returned count={len(sessions)}")
         return JSONResponse({"sessions": sessions})
@@ -439,12 +445,14 @@ def create_app() -> Any:
     @app.get("/api/sessions/{session_id}")
     async def session_detail(
         session_id: str,
-        token: str | None = None,
-        authorization: str | None = Header(default=None),
+        x_ccode_app_id: str | None = Header(default=None),
+        x_ccode_timestamp: str | None = Header(default=None),
+        x_ccode_sign: str | None = Header(default=None),
     ) -> Response:
-        if not _valid_auth_token(token, authorization):
-            _log_event(f"api session detail unauthorized session_id={session_id}")
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        auth_result = _valid_auth_payload({"appId": x_ccode_app_id, "timestamp": x_ccode_timestamp, "sign": x_ccode_sign}, "local.api")
+        if not auth_result.ok:
+            _log_event(f"api session detail unauthorized session_id={session_id} error={auth_result.error}")
+            return _auth_response(auth_result, JSONResponse)
         session = get_remote_session(session_id)
         if session is None or not _session_is_running(session):
             _log_event(f"api session detail not_found session_id={session_id}")
@@ -454,12 +462,14 @@ def create_app() -> Any:
 
     @app.get("/api/session")
     async def legacy_session(
-        token: str | None = None,
-        authorization: str | None = Header(default=None),
+        x_ccode_app_id: str | None = Header(default=None),
+        x_ccode_timestamp: str | None = Header(default=None),
+        x_ccode_sign: str | None = Header(default=None),
     ) -> Response:
-        if not _valid_auth_token(token, authorization):
-            _log_event("legacy api session unauthorized")
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        auth_result = _valid_auth_payload({"appId": x_ccode_app_id, "timestamp": x_ccode_timestamp, "sign": x_ccode_sign}, "local.api")
+        if not auth_result.ok:
+            _log_event(f"legacy api session unauthorized error={auth_result.error}")
+            return _auth_response(auth_result, JSONResponse)
         sessions = list_remote_sessions()
         _log_event(f"legacy api session requested running_count={len(sessions)}")
         if len(sessions) == 1:
@@ -471,9 +481,10 @@ def create_app() -> Any:
     async def websocket_session(websocket: FastAPIWebSocket, session_id: str) -> None:
         await websocket.accept()
         _log_event(f"websocket accepted session_id={session_id}")
-        if not _valid_token(await websocket_auth_token(websocket)):
-            _log_event(f"websocket unauthorized session_id={session_id}")
-            await websocket.send_json({"type": "status", "message": "unauthorized: invalid token"})
+        auth_result = _valid_auth_payload(dict(websocket.query_params), "local.ws")
+        if not auth_result.ok:
+            _log_event(f"websocket unauthorized session_id={session_id} error={auth_result.error}")
+            await websocket.send_json({"type": "error", "error": auth_result.error, "message": auth_result.message})
             await websocket.close(code=1008)
             return
         session = get_remote_session(session_id)
@@ -488,9 +499,10 @@ def create_app() -> Any:
     async def legacy_websocket(websocket: FastAPIWebSocket) -> None:
         await websocket.accept()
         _log_event("legacy websocket accepted")
-        if not _valid_token(await websocket_auth_token(websocket)):
-            _log_event("legacy websocket unauthorized")
-            await websocket.send_json({"type": "status", "message": "unauthorized: invalid token"})
+        auth_result = _valid_auth_payload(dict(websocket.query_params), "local.ws")
+        if not auth_result.ok:
+            _log_event(f"legacy websocket unauthorized error={auth_result.error}")
+            await websocket.send_json({"type": "error", "error": auth_result.error, "message": auth_result.message})
             await websocket.close(code=1008)
             return
         sessions = list_remote_sessions()
@@ -530,11 +542,11 @@ def run_remote_hub_forever(config: dict[str, Any]) -> str | None:
 
 def run_remote_session(config: dict[str, Any], args: list[str]) -> str | None:
     mode = remote_mode(config)
-    if mode == "local" and not remote_local_token(config).strip():
-        return "Remote token is required. Set it in the config screen or press g on the TOKEN field to generate one."
+    if mode == "local" and (not remote_local_app_id(config).strip() or not remote_local_app_key(config).strip()):
+        return "Remote app ID and app key are required. Set them in the config screen or press g on the APP ID / APP KEY fields to generate them."
     server = remote_server_config(config)
-    if mode == "server" and (not remote_server_url(config) or not str(server.get("token") or "").strip()):
-        return "Remote server URL and client token are required in server mode."
+    if mode == "server" and (not remote_server_url(config) or not str(server.get("appId") or "").strip() or not str(server.get("appKey") or "").strip()):
+        return "Remote server URL, client app ID, and client app key are required in server mode."
     error = _check_runtime()
     if error is not None:
         return error
@@ -604,7 +616,7 @@ def run_remote_session(config: dict[str, Any], args: list[str]) -> str | None:
         print(f"  {session_name}\n")
         if host == "0.0.0.0":
             print("Security warning:")
-            print("  Listening on 0.0.0.0 exposes all remote sessions to your network. Protect the access URL and token.\n")
+            print("  Listening on 0.0.0.0 exposes all remote sessions to your network. Protect the access URL and app credentials.\n")
         print("This terminal will attach to this tmux session. The web hub stays running independently.")
         print("Detach with Ctrl+B then D. Browser users can choose this session from the session list.\n")
 

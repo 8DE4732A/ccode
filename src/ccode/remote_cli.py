@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import load_config, mask_secret
-from .remote_common import pid_from_path, remote_display_url, remote_local_host_port, remote_local_token, remote_mode, remote_server_config, remote_server_url
+from .remote_common import pid_from_path, remote_display_url, remote_local_app_id, remote_local_app_key, remote_local_host_port, remote_mode, remote_server_config, remote_server_url
 
 
 def _format_bytes(value: int) -> str:
@@ -90,12 +90,14 @@ def print_status(kind: str | None = None) -> int:
         server = remote_server_config(config)
         print(f"  device name: {server.get('device_name') or '<unset>'}")
         print(f"  device id: {server.get('device_id') or '<unset>'}")
-        print(f"  client token: {mask_secret(str(server.get('token') or ''))}")
+        print(f"  client app id: {server.get('appId') or '<unset>'}")
+        print(f"  client app key: {mask_secret(str(server.get('appKey') or ''))}")
     else:
         host, port = remote_local_host_port(config)
         print(f"  host: {host}")
         print(f"  port: {port}")
-        print(f"  token: {mask_secret(remote_local_token(config))}")
+        print(f"  app id: {remote_local_app_id(config) or '<unset>'}")
+        print(f"  app key: {mask_secret(remote_local_app_key(config))}")
     print()
 
     if effective == "client":

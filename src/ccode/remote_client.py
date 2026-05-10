@@ -10,7 +10,7 @@ import time
 from typing import Any
 
 from .config import CONFIG_DIR, load_config
-from .remote_common import file_lock, http_to_ws_url, missing_extra_message, pid_from_path, remote_server_config, remote_server_url, rotate_log
+from .remote_common import build_auth_payload, file_lock, http_to_ws_url, missing_extra_message, pid_from_path, remote_server_app_id, remote_server_app_key, remote_server_config, remote_server_url, rotate_log
 
 REMOTE_CLIENT_LOCK_PATH = CONFIG_DIR / "remote_client.lock"
 REMOTE_CLIENT_PID_PATH = CONFIG_DIR / "remote_client.pid"
@@ -179,9 +179,9 @@ async def open_attach_socket(attach_id: str, session_id: str, config: dict[str, 
     except ImportError:
         _log_event(missing_extra_message("remote-client", "websockets"))
         return
-    server = remote_server_config(config)
+    auth_payload = build_auth_payload(remote_server_app_id(config), remote_server_app_key(config), "client.attach")
     async with websockets.connect(_attach_url(config, attach_id), **_connect_kwargs(config)) as ws:
-        await ws.send(json.dumps({"type": "auth", "token": server.get("token") or "", "attach_id": attach_id}))
+        await ws.send(json.dumps({"type": "auth", **auth_payload, "attach_id": attach_id}))
         await attach_local_session_to_websocket(ws, session_id)
 
 
@@ -217,10 +217,11 @@ async def connect_control_loop(config: dict[str, Any]) -> None:
     from .remote import scan_remote_sessions
 
     running, _dead = scan_remote_sessions(prune=True)
+    auth_payload = build_auth_payload(remote_server_app_id(config), remote_server_app_key(config), "client.control")
     async with websockets.connect(_control_url(config), **_connect_kwargs(config)) as ws:
         await ws.send(json.dumps({
             "type": "hello",
-            "token": server.get("token") or "",
+            **auth_payload,
             "device_id": server.get("device_id") or "",
             "device_name": server.get("device_name") or "",
             "version": "0.2.0",
@@ -246,9 +247,8 @@ async def _run_loop(config: dict[str, Any]) -> None:
 def run_remote_client_forever(config: dict[str, Any]) -> str | None:
     if not remote_server_url(config):
         return "Remote server URL is required."
-    server = remote_server_config(config)
-    if not str(server.get("token") or "").strip():
-        return "Remote server client token is required."
+    if not remote_server_app_id(config).strip() or not remote_server_app_key(config).strip():
+        return "Remote server client app ID and app key are required."
     if remote_server_url(config).startswith("http://"):
         _log_event("warning: remote server URL uses plain HTTP/WS")
     try:

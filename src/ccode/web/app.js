@@ -1,7 +1,8 @@
 const terminalEl = document.getElementById("terminal");
 const sessionListEl = document.getElementById("session-list");
 const tokenFormEl = document.getElementById("token-form");
-const tokenInputEl = document.getElementById("token-input");
+const appIdInputEl = document.getElementById("app-id-input");
+const appKeyInputEl = document.getElementById("app-key-input");
 const statusEl = document.getElementById("status");
 const actionsEl = document.getElementById("actions");
 const actionsToggleButton = document.getElementById("actions-toggle");
@@ -26,9 +27,11 @@ const inputSequences = {
   left: "\x1b[D",
 };
 
-const tokenStorageKey = "ccode.remote.adminToken";
+const authStorageKey = "ccode.remote.authTicket";
+const appIdStorageKey = "ccode.remote.appId";
 const fontSizeStorageKey = "ccode.remote.terminalFontSize";
-let token = window.sessionStorage.getItem(tokenStorageKey) || "";
+let authTicket = loadAuthTicket();
+let remoteKind = "local";
 let socket = null;
 let term = null;
 let fitAddon = null;
@@ -40,8 +43,64 @@ let resizeFrame = null;
 let viewportHeight = "";
 let keyboardInset = "";
 
+function loadAuthTicket() {
+  try {
+    const ticket = JSON.parse(window.sessionStorage.getItem(authStorageKey) || "null");
+    return ticket && ticket.appId && ticket.timestamp && ticket.signs ? ticket : null;
+  } catch (error) {
+    return null;
+  }
+}
+
 function setStatus(message) {
   statusEl.textContent = message;
+}
+
+function authMessage(appId, timestamp, scope) {
+  return `v1\nappId=${appId}\ntimestamp=${timestamp}\nscope=${scope}`;
+}
+
+function base64Url(bytes) {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function signAuth(appId, appKey, timestamp, scope) {
+  const encoder = new TextEncoder();
+  const key = await window.crypto.subtle.importKey("raw", encoder.encode(appKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await window.crypto.subtle.sign("HMAC", key, encoder.encode(authMessage(appId, timestamp, scope)));
+  return base64Url(new Uint8Array(signature));
+}
+
+async function createAuthTicket(appId, appKey) {
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const scopes = ["local.api", "local.ws", "server.api", "server.ws"];
+  const signs = {};
+  for (const scope of scopes) {
+    signs[scope] = await signAuth(appId, appKey, timestamp, scope);
+  }
+  return { appId, timestamp, signs };
+}
+
+function authHeaders(scope) {
+  return {
+    "X-CCODE-App-Id": authTicket.appId,
+    "X-CCODE-Timestamp": authTicket.timestamp,
+    "X-CCODE-Sign": authTicket.signs[scope] || "",
+  };
+}
+
+function authQuery(scope) {
+  return new URLSearchParams({ appId: authTicket.appId, timestamp: authTicket.timestamp, sign: authTicket.signs[scope] || "" }).toString();
+}
+
+function clearAuthTicket(message = "enter app credentials") {
+  window.sessionStorage.removeItem(authStorageKey);
+  authTicket = null;
+  showTokenMode(message);
 }
 
 function sendInput(data) {
@@ -190,7 +249,7 @@ function closeSocket() {
   }
 }
 
-function showTokenMode(message = "enter token") {
+function showTokenMode(message = "enter app credentials") {
   closeSocket();
   currentSession = null;
   terminalEl.hidden = true;
@@ -205,8 +264,9 @@ function showTokenMode(message = "enter token") {
   refreshButton.hidden = true;
   changeTokenButton.hidden = true;
   setStatus(message);
-  tokenInputEl.value = token;
-  tokenInputEl.focus();
+  appIdInputEl.value = window.sessionStorage.getItem(appIdStorageKey) || authTicket?.appId || "";
+  appKeyInputEl.value = "";
+  appIdInputEl.focus();
 }
 
 function showListMode() {
@@ -297,7 +357,7 @@ function renderSessions(sessions) {
 }
 
 async function loadSessions() {
-  if (!token) {
+  if (!authTicket) {
     showTokenMode();
     return;
   }
@@ -307,12 +367,11 @@ async function loadSessions() {
   try {
     const response = await fetch("/api/sessions", {
       cache: "no-store",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: authHeaders(`${remoteKind}.api`),
     });
     if (response.status === 401) {
-      window.sessionStorage.removeItem(tokenStorageKey);
-      token = "";
-      showTokenMode("unauthorized: invalid token");
+      const payload = await response.json().catch(() => ({}));
+      clearAuthTicket(payload.error === "reauth_required" ? "authentication expired: enter app credentials" : "unauthorized: invalid app credentials");
       return;
     }
     if (!response.ok) {
@@ -334,7 +393,7 @@ function sessionWsPath(session) {
 }
 
 function connect() {
-  if (!token) {
+  if (!authTicket) {
     showTokenMode();
     return;
   }
@@ -347,12 +406,8 @@ function connect() {
   closeSocket();
   term.clear();
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  socket = new WebSocket(`${protocol}//${window.location.host}${sessionWsPath(currentSession)}`);
+  socket = new WebSocket(`${protocol}//${window.location.host}${sessionWsPath(currentSession)}?${authQuery(`${remoteKind}.ws`)}`);
   setStatus("connecting");
-
-  socket.addEventListener("open", () => {
-    socket.send(JSON.stringify({ type: "auth", token }));
-  });
 
   socket.addEventListener("message", (event) => {
     const payload = JSON.parse(event.data);
@@ -364,15 +419,17 @@ function connect() {
         fitAndSendResize();
         term.focus();
       }
+    } else if (payload.type === "error") {
+      if (payload.error === "reauth_required" || payload.error === "auth_required" || payload.error === "auth_failed") {
+        clearAuthTicket(payload.message || "enter app credentials");
+      }
     }
   });
 
   socket.addEventListener("close", (event) => {
     if (event.code === 1008) {
-      if (statusEl.textContent === "unauthorized: invalid token") {
-        window.sessionStorage.removeItem(tokenStorageKey);
-        token = "";
-        showTokenMode("unauthorized: invalid token");
+      if (statusEl.textContent !== "connected") {
+        clearAuthTicket("enter app credentials");
       }
       return;
     }
@@ -394,21 +451,22 @@ function openSession(session) {
   connect();
 }
 
-tokenFormEl.addEventListener("submit", (event) => {
+tokenFormEl.addEventListener("submit", async (event) => {
   event.preventDefault();
-  token = tokenInputEl.value.trim();
-  if (!token) {
-    showTokenMode("enter token");
+  const appId = appIdInputEl.value.trim();
+  const appKey = appKeyInputEl.value.trim();
+  if (!appId || !appKey) {
+    showTokenMode("enter app credentials");
     return;
   }
-  window.sessionStorage.setItem(tokenStorageKey, token);
+  authTicket = await createAuthTicket(appId, appKey);
+  window.sessionStorage.setItem(authStorageKey, JSON.stringify(authTicket));
+  window.sessionStorage.setItem(appIdStorageKey, appId);
   loadSessions();
 });
 
 changeTokenButton.addEventListener("click", () => {
-  window.sessionStorage.removeItem(tokenStorageKey);
-  token = "";
-  showTokenMode("enter token");
+  clearAuthTicket("enter app credentials");
 });
 window.addEventListener("resize", requestFitAndSendResize);
 actionsToggleButton.addEventListener("click", () => {
@@ -451,4 +509,15 @@ if (window.visualViewport) {
 }
 updateViewportInsets();
 
-loadSessions();
+async function initialize() {
+  try {
+    const response = await fetch("/health", { cache: "no-store" });
+    const payload = await response.json();
+    remoteKind = payload.remote_kind === "server" ? "server" : "local";
+  } catch (error) {
+    remoteKind = "local";
+  }
+  loadSessions();
+}
+
+initialize();

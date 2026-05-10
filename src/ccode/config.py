@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import secrets
 import socket
 import uuid
 from pathlib import Path
@@ -32,11 +33,13 @@ DEFAULT_REMOTE: dict[str, Any] = {
     "local": {
         "host": "127.0.0.1",
         "port": 8765,
-        "token": "",
+        "appId": "",
+        "appKey": "",
     },
     "server": {
         "url": "",
-        "token": "",
+        "appId": "",
+        "appKey": "",
         "device_name": "",
         "device_id": "",
         "auto_connect": True,
@@ -103,6 +106,10 @@ def _new_device_id() -> str:
     return f"ccode-{uuid.uuid4().hex}"
 
 
+def _new_app_id() -> str:
+    return f"app_{secrets.token_urlsafe(9)}"
+
+
 def normalize_remote(remote: Any) -> dict[str, Any]:
     normalized = copy.deepcopy(DEFAULT_REMOTE)
     if not isinstance(remote, dict):
@@ -132,18 +139,31 @@ def normalize_remote(remote: Any) -> dict[str, Any]:
         port = remote.get("port")
     if isinstance(port, int):
         normalized["local"]["port"] = port
-    token = local.get("token") if isinstance(local, dict) else None
-    if not isinstance(token, str):
-        token = remote.get("token")
-    if isinstance(token, str):
-        normalized["local"]["token"] = token
+    local_app_id = local.get("appId") if isinstance(local, dict) else None
+    local_app_key = local.get("appKey") if isinstance(local, dict) else None
+    local_token = local.get("token") if isinstance(local, dict) else None
+    if not isinstance(local_token, str):
+        local_token = remote.get("token")
+    if isinstance(local_app_id, str):
+        normalized["local"]["appId"] = local_app_id
+    elif isinstance(local_token, str) and local_token:
+        normalized["local"]["appId"] = _new_app_id()
+    if isinstance(local_app_key, str):
+        normalized["local"]["appKey"] = local_app_key
+    elif isinstance(local_token, str):
+        normalized["local"]["appKey"] = local_token
 
     server = remote.get("server") if isinstance(remote.get("server"), dict) else {}
     if isinstance(server, dict):
-        for key in ("url", "token", "device_name", "device_id"):
+        server_token = server.get("token")
+        for key in ("url", "appId", "appKey", "device_name", "device_id"):
             value = server.get(key)
             if isinstance(value, str):
                 normalized["server"][key] = value
+        if not normalized["server"].get("appId") and isinstance(server_token, str) and server_token:
+            normalized["server"]["appId"] = _new_app_id()
+        if not normalized["server"].get("appKey") and isinstance(server_token, str):
+            normalized["server"]["appKey"] = server_token
         for key in ("auto_connect", "verify_tls"):
             value = server.get(key)
             if isinstance(value, bool):

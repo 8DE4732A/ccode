@@ -12,23 +12,25 @@
       <header>
         <div>
           <h1>ccode remote</h1>
-          <p id="status">enter token</p>
+          <p id="status">enter app credentials</p>
         </div>
         <button id="actions-toggle" class="actions-toggle" type="button" hidden>Menu</button>
         <div id="actions" class="actions">
           <button id="back" type="button" hidden>Sessions</button>
           <button id="refresh" type="button" hidden>Refresh</button>
-          <button id="change-token" type="button" hidden>Change token</button>
+          <button id="change-token" type="button" hidden>Change credentials</button>
           <button id="focus" type="button" hidden>Focus terminal</button>
           <button id="reconnect" type="button" hidden>Reconnect</button>
         </div>
       </header>
       <form id="token-form" class="token-panel">
-        <label for="token-input">Remote token</label>
+        <label for="app-id-input">Remote app credentials</label>
         <div class="token-row">
-          <input id="token-input" type="password" autocomplete="current-password" placeholder="Paste your configured token" />
+          <input id="app-id-input" autocomplete="username" placeholder="App ID" />
+          <input id="app-key-input" type="password" autocomplete="current-password" placeholder="App Key" />
           <button type="submit">Continue</button>
         </div>
+        <small>App Key is only used locally to create a 24-hour signature.</small>
       </form>
       <section id="session-list" hidden></section>
       <div id="terminal" tabindex="0" hidden></div>

@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from .remote_common import asset_text, auth_token_matches, missing_extra_message, token_matches, web_asset_text, websocket_auth_token
+from .remote_common import AuthResult, asset_text, missing_extra_message, verify_auth_payload, web_asset_text
 
 REMOTE_SERVER_NAME = "ccode-remote-server"
 ATTACH_TTL_SECONDS = 30
@@ -41,22 +41,33 @@ _PENDING_ATTACHES: dict[str, PendingAttach] = {}
 DEVICE_OFFLINE_TTL_SECONDS = 24 * 60 * 60
 
 
-def _admin_token() -> str:
-    return os.environ.get("CCODE_REMOTE_SERVER_ADMIN_TOKEN", "").strip()
+def _admin_app_id() -> str:
+    return os.environ.get("CCODE_REMOTE_SERVER_ADMIN_APP_ID", "").strip()
 
 
-def _client_token() -> str:
-    return os.environ.get("CCODE_REMOTE_SERVER_CLIENT_TOKEN", "").strip()
+def _admin_app_key() -> str:
+    return os.environ.get("CCODE_REMOTE_SERVER_ADMIN_APP_KEY", "").strip()
 
 
-def _valid_admin(token: str | None = None, authorization: str | None = None) -> bool:
-    expected = _admin_token()
-    return bool(expected) and auth_token_matches(expected, token, authorization)
+def _client_app_id() -> str:
+    return os.environ.get("CCODE_REMOTE_SERVER_CLIENT_APP_ID", "").strip()
 
 
-def _valid_client(token: str | None) -> bool:
-    expected = _client_token()
-    return bool(expected) and token_matches(expected, token)
+def _client_app_key() -> str:
+    return os.environ.get("CCODE_REMOTE_SERVER_CLIENT_APP_KEY", "").strip()
+
+
+def _valid_admin(payload: dict[str, Any], scope: str) -> AuthResult:
+    return verify_auth_payload(_admin_app_id(), _admin_app_key(), payload, scope)
+
+
+def _valid_client(payload: dict[str, Any], scope: str) -> AuthResult:
+    return verify_auth_payload(_client_app_id(), _client_app_key(), payload, scope)
+
+
+def _auth_response(result: AuthResult, response_class: Any) -> Any:
+    status_code = 401 if result.error in {"auth_required", "reauth_required"} else 403
+    return response_class({"error": result.error or "auth_failed", "message": result.message}, status_code=status_code)
 
 
 def _device_payload(device: DeviceConnection) -> dict[str, Any]:
@@ -168,25 +179,42 @@ def create_server_app() -> Any:
     @app.get("/health")
     async def health() -> dict[str, Any]:
         _prune_offline_devices()
-        return {"ok": True, "name": REMOTE_SERVER_NAME, "devices": len(_DEVICES)}
+        return {"ok": True, "name": REMOTE_SERVER_NAME, "devices": len(_DEVICES), "remote_kind": "server"}
 
     @app.get("/api/devices")
-    async def devices(token: str | None = None, authorization: str | None = Header(default=None)) -> Response:
-        if not _valid_admin(token, authorization):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+    async def devices(
+        x_ccode_app_id: str | None = Header(default=None),
+        x_ccode_timestamp: str | None = Header(default=None),
+        x_ccode_sign: str | None = Header(default=None),
+    ) -> Response:
+        auth_result = _valid_admin({"appId": x_ccode_app_id, "timestamp": x_ccode_timestamp, "sign": x_ccode_sign}, "server.api")
+        if not auth_result.ok:
+            return _auth_response(auth_result, JSONResponse)
         _prune_offline_devices()
         return JSONResponse({"devices": [_device_payload(device) for device in _DEVICES.values()]})
 
     @app.get("/api/sessions")
-    async def sessions(token: str | None = None, authorization: str | None = Header(default=None)) -> Response:
-        if not _valid_admin(token, authorization):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+    async def sessions(
+        x_ccode_app_id: str | None = Header(default=None),
+        x_ccode_timestamp: str | None = Header(default=None),
+        x_ccode_sign: str | None = Header(default=None),
+    ) -> Response:
+        auth_result = _valid_admin({"appId": x_ccode_app_id, "timestamp": x_ccode_timestamp, "sign": x_ccode_sign}, "server.api")
+        if not auth_result.ok:
+            return _auth_response(auth_result, JSONResponse)
         return JSONResponse({"sessions": _flatten_sessions()})
 
     @app.get("/api/devices/{device_id}/sessions/{session_id}")
-    async def session_detail(device_id: str, session_id: str, token: str | None = None, authorization: str | None = Header(default=None)) -> Response:
-        if not _valid_admin(token, authorization):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+    async def session_detail(
+        device_id: str,
+        session_id: str,
+        x_ccode_app_id: str | None = Header(default=None),
+        x_ccode_timestamp: str | None = Header(default=None),
+        x_ccode_sign: str | None = Header(default=None),
+    ) -> Response:
+        auth_result = _valid_admin({"appId": x_ccode_app_id, "timestamp": x_ccode_timestamp, "sign": x_ccode_sign}, "server.api")
+        if not auth_result.ok:
+            return _auth_response(auth_result, JSONResponse)
         device, session = _get_device_session(device_id, session_id)
         if device is None or session is None:
             return JSONResponse({"error": "not_found"}, status_code=404)
@@ -201,7 +229,9 @@ def create_server_app() -> Any:
         except (asyncio.TimeoutError, json.JSONDecodeError):
             await websocket.close(code=1008)
             return
-        if hello.get("type") != "hello" or not _valid_client(hello.get("token") if isinstance(hello.get("token"), str) else None):
+        auth_result = _valid_client(hello, "client.control")
+        if hello.get("type") != "hello" or not auth_result.ok:
+            await websocket.send_json({"type": "error", "error": auth_result.error or "auth_failed", "message": auth_result.message})
             await websocket.close(code=1008)
             return
         device_id = str(hello.get("device_id") or secrets.token_urlsafe(16))
@@ -237,8 +267,15 @@ def create_server_app() -> Any:
         await websocket.accept()
         _prune_pending()
         pending = _PENDING_ATTACHES.get(attach_id)
-        token = await websocket_auth_token(websocket)
-        if pending is None or not _valid_client(token):
+        try:
+            raw = await asyncio.wait_for(websocket.receive_text(), timeout=10)
+            payload = json.loads(raw)
+        except (asyncio.TimeoutError, json.JSONDecodeError):
+            await websocket.close(code=1008)
+            return
+        auth_result = _valid_client(payload, "client.attach")
+        if pending is None or payload.get("type") != "auth" or not auth_result.ok:
+            await websocket.send_json({"type": "error", "error": auth_result.error or "auth_failed", "message": auth_result.message})
             await websocket.close(code=1008)
             return
         pending.client_ws = websocket
@@ -249,9 +286,9 @@ def create_server_app() -> Any:
     @app.websocket("/ws/devices/{device_id}/sessions/{session_id}")
     async def browser_attach(websocket: FastAPIWebSocket, device_id: str, session_id: str) -> None:
         await websocket.accept()
-        token = await websocket_auth_token(websocket)
-        if not _valid_admin(token):
-            await websocket.send_json({"type": "status", "message": "unauthorized: invalid token"})
+        auth_result = _valid_admin(dict(websocket.query_params), "server.ws")
+        if not auth_result.ok:
+            await websocket.send_json({"type": "error", "error": auth_result.error, "message": auth_result.message})
             await websocket.close(code=1008)
             return
         device, session = _get_device_session(device_id, session_id)

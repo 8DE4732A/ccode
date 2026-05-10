@@ -122,8 +122,8 @@ uv sync --extra remote          # 同时安装 client/server 依赖
 
 - `↑ / ↓`：移动字段焦点
 - `Enter / Space`：切换开关项
-- 文本输入：编辑 BASE_URL / API_KEY、remote local/server URL/token/device/prefix 等字段
-- `g`：在 Remote local token 或 server client token 字段重新生成访问 token
+- 文本输入：编辑 BASE_URL / API_KEY、remote local/server URL/appId/appKey/device/prefix 等字段
+- `g`：在 Remote appId 或 appKey 字段重新生成对应值
 - `ESC`：自动保存并返回主界面
 
 ## 配置文件
@@ -158,11 +158,13 @@ uv sync --extra remote          # 同时安装 client/server 依赖
     "local": {
       "host": "127.0.0.1",
       "port": 8765,
-      "token": ""
+      "appId": "",
+      "appKey": ""
     },
     "server": {
       "url": "",
-      "token": "",
+      "appId": "",
+      "appKey": "",
       "device_name": "",
       "device_id": "",
       "auto_connect": true,
@@ -180,6 +182,8 @@ Remote/Web 让 Claude Code 运行在 tmux session 中，浏览器通过 WebSocke
 |---|---|---|---|
 | `local` | 直接访问本机 local hub | 当前这台机器 | 单机使用，或把这一台机器通过 tunnel 暴露出去 |
 | `server` | 访问公网中心 `ccode-remote-server` | 各客户端设备本机 | 多设备、NAT 后设备、统一入口管理多个 sessions |
+
+Remote/Web 使用 appId/appKey HMAC 认证。网络请求只携带 `appId`、`timestamp` 和 `sign`，其中 `sign` 由 appKey 计算，appKey 不会被发送。浏览器端只保存 24 小时有效的签名票据，过期后需要重新输入 appKey；客户端 connector 会从本地配置读取 appKey 并在重连时自动重新签名。旧版配置中的 `token` 会在读取时迁移为 `appKey`，并自动生成 `appId`。
 
 ### local 模式
 
@@ -211,23 +215,23 @@ claude
    - `MODE`：`local`
    - `LOCAL HOST`：默认 `127.0.0.1`
    - `LOCAL PORT`：默认 `8765`
-   - `LOCAL TOKEN`：手动输入，或在该字段按 `g` 生成
+   - `LOCAL APP ID` / `LOCAL APP KEY`：手动输入，或在对应字段按 `g` 生成
 
 3. 回到主界面，按 `r` 开启 Remote/Web，再按 `Enter` 启动 remote session。
 
-4. 浏览器打开终端输出的本地地址，输入 `LOCAL TOKEN`，选择 session 后进入 terminal。
+4. 浏览器打开终端输出的本地地址，输入 `LOCAL APP ID` / `LOCAL APP KEY`，选择 session 后进入 terminal。
 
-local 模式默认只监听 `127.0.0.1`。终端只输出不带 token 的本地访问地址。浏览器打开页面后需要手动输入 token，前端会用 `sessionStorage` 做浏览器会话级缓存；关闭该浏览器会话后需要重新输入。所有 session list、session API 和 WebSocket 连接仍然需要 token。
+local 模式默认只监听 `127.0.0.1`。终端只输出不带认证信息的本地访问地址。浏览器打开页面后需要手动输入 appId/appKey，前端只保存由 appKey 生成的 24 小时 HMAC 签名票据，不保存 appKey；票据过期或关闭浏览器会话后需要重新输入。所有 session list、session API 和 WebSocket 连接仍然需要签名认证。
 
-每个启用 Remote/Web 的 `ccode` 进程都会创建一个唯一 tmux session，session 名由配置里的 `session_name` 前缀、时间戳和进程号组成，例如 `ccode-claude-20260509-153022-12345`。本机只启动一个共享 remote hub，多个本地 `ccode` 进程会复用同一个 host/port/token。浏览器认证后会先显示 session 列表，选择某个 session 后进入 terminal，也可以返回列表重新选择。
+每个启用 Remote/Web 的 `ccode` 进程都会创建一个唯一 tmux session，session 名由配置里的 `session_name` 前缀、时间戳和进程号组成，例如 `ccode-claude-20260509-153022-12345`。本机只启动一个共享 remote hub，多个本地 `ccode` 进程会复用同一个 host/port/appId/appKey。浏览器认证后会先显示 session 列表，选择某个 session 后进入 terminal，也可以返回列表重新选择。
 
-如果通过 Cloudflare Tunnel、Nginx、Caddy 等反向代理暴露 local hub，建议额外叠加 Cloudflare Access、Basic Auth 或 OAuth2 proxy。监听 `0.0.0.0` 会把所有 remote sessions 暴露给网络内可达主机，请保护好访问入口和 token。
+如果通过 Cloudflare Tunnel、Nginx、Caddy 等反向代理暴露 local hub，建议额外叠加 Cloudflare Access、Basic Auth 或 OAuth2 proxy。监听 `0.0.0.0` 会把所有 remote sessions 暴露给网络内可达主机，请保护好访问入口和 app credentials。
 
 ```bash
 cloudflared tunnel --url http://127.0.0.1:8765
 ```
 
-local hub 日志写入 `~/.ccode/remote_server.log`，记录 hub 启停、session 注册、session API 和 WebSocket 连接状态，不记录 token。启动 hub 前如果日志超过 5 MiB 会自动轮转，默认保留 3 个历史文件（`.1`、`.2`、`.3`）。
+local hub 日志写入 `~/.ccode/remote_server.log`，记录 hub 启停、session 注册、session API 和 WebSocket 连接状态，不记录 appKey。启动 hub 前如果日志超过 5 MiB 会自动轮转，默认保留 3 个历史文件（`.1`、`.2`、`.3`）。
 
 ### server 模式和 `ccode-remote-server`
 
@@ -238,7 +242,7 @@ local hub 日志写入 `~/.ccode/remote_server.log`，记录 hub 启停、sessio
 ```text
                   Browser
                      │
-                     │ HTTPS/WSS + admin token
+                     │ HTTPS/WSS + admin HMAC
                      ▼
           ┌───────────────────────┐
           │ ccode-remote-server   │
@@ -263,31 +267,35 @@ local hub 日志写入 `~/.ccode/remote_server.log`，记录 hub 启停、sessio
 
 server 不反连客户端，所以客户端可以在 NAT、家庭网络或公司内网后面。只要客户端能主动访问 server，就可以注册设备和暴露自己的 remote sessions。
 
-#### server token
+#### server app credentials
 
-server token 不会自动生成，必须通过环境变量显式设置：
+server app credentials 不会自动生成，必须通过环境变量显式设置。认证时网络上传输 appId、timestamp 和 HMAC sign，不传输 appKey：
 
-- `CCODE_REMOTE_SERVER_ADMIN_TOKEN`：浏览器 Web UI / `/api/*` / browser WebSocket 使用的管理 token。
-- `CCODE_REMOTE_SERVER_CLIENT_TOKEN`：各设备客户端 connector 注册和心跳使用的 token。
+- `CCODE_REMOTE_SERVER_ADMIN_APP_ID` / `CCODE_REMOTE_SERVER_ADMIN_APP_KEY`：浏览器 Web UI / `/api/*` / browser WebSocket 使用的管理凭据。
+- `CCODE_REMOTE_SERVER_CLIENT_APP_ID` / `CCODE_REMOTE_SERVER_CLIENT_APP_KEY`：各设备客户端 connector 注册和心跳使用的客户端凭据。
 - `CCODE_REMOTE_SERVER_HOST` / `CCODE_REMOTE_SERVER_PORT`：可选，默认监听 `127.0.0.1:8765`。
 
 启动中心 server：
 
 ```bash
-CCODE_REMOTE_SERVER_ADMIN_TOKEN="admin-secret" \
-CCODE_REMOTE_SERVER_CLIENT_TOKEN="client-secret" \
+CCODE_REMOTE_SERVER_ADMIN_APP_ID="admin-app" \
+CCODE_REMOTE_SERVER_ADMIN_APP_KEY="admin-secret" \
+CCODE_REMOTE_SERVER_CLIENT_APP_ID="client-app" \
+CCODE_REMOTE_SERVER_CLIENT_APP_KEY="client-secret" \
 ccode-remote-server --host 127.0.0.1 --port 8765
 ```
 
 如果使用源码开发环境运行：
 
 ```bash
-CCODE_REMOTE_SERVER_ADMIN_TOKEN="admin-secret" \
-CCODE_REMOTE_SERVER_CLIENT_TOKEN="client-secret" \
+CCODE_REMOTE_SERVER_ADMIN_APP_ID="admin-app" \
+CCODE_REMOTE_SERVER_ADMIN_APP_KEY="admin-secret" \
+CCODE_REMOTE_SERVER_CLIENT_APP_ID="client-app" \
+CCODE_REMOTE_SERVER_CLIENT_APP_KEY="client-secret" \
 uv run --extra remote-server ccode-remote-server --host 127.0.0.1 --port 8765
 ```
 
-浏览器访问 server 页面时输入 `admin-secret`。如果未设置 `CCODE_REMOTE_SERVER_ADMIN_TOKEN`，管理 API 会返回 401，页面上任何 token 都无法通过认证。
+浏览器访问 server 页面时输入 admin appId/appKey。前端只保存 24 小时有效的 HMAC 签名票据，不保存 appKey。如果未设置 `CCODE_REMOTE_SERVER_ADMIN_APP_ID` / `CCODE_REMOTE_SERVER_ADMIN_APP_KEY`，管理 API 会返回 401。
 
 #### 客户端设备配置
 
@@ -301,7 +309,7 @@ uv tool install 'ccoding[remote-client]'
 
 - `MODE`：`server`
 - `SERVER URL`：中心 server 地址，例如 `http://127.0.0.1:8765`；如果只填 `127.0.0.1:8765`，会自动按 `http://127.0.0.1:8765` 处理
-- `CLIENT TOKEN`：与 server 的 `CCODE_REMOTE_SERVER_CLIENT_TOKEN` 一致
+- `CLIENT APP ID` / `CLIENT APP KEY`：与 server 的 `CCODE_REMOTE_SERVER_CLIENT_APP_ID` / `CCODE_REMOTE_SERVER_CLIENT_APP_KEY` 一致
 - `DEVICE NAME`：设备显示名，可留空后由配置迁移填充 hostname
 - `DEVICE ID`：稳定设备 ID，可留空后自动生成
 - `AUTO CONNECT`：是否默认自动连接中心 server
@@ -333,7 +341,7 @@ server 只做 registry/router/relay，不保存 terminal frame data，不保存 
 
 #### Cloudflare Tunnel / 反向代理
 
-如果用 Cloudflare Tunnel 暴露中心 server，只需要 tunnel server 这一处入口，多台客户端设备都配置同一个 `SERVER URL` 和 `CLIENT TOKEN`：
+如果用 Cloudflare Tunnel 暴露中心 server，只需要 tunnel server 这一处入口，多台客户端设备都配置同一个 `SERVER URL` 和 `CLIENT APP ID` / `CLIENT APP KEY`：
 
 ```bash
 cloudflared tunnel --url http://127.0.0.1:8765

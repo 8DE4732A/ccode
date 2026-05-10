@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-import asyncio
+import base64
 import contextlib
 import datetime as dt
 import fcntl
-import json
+import hashlib
+import hmac
 import os
 import re
 import secrets
+import time
+from dataclasses import dataclass
 from importlib import resources
 from typing import Any, Iterator
-from urllib.parse import quote, urlparse
+from urllib.parse import urlencode, urlparse
 
 from .config import CONFIG_DIR
 
@@ -42,17 +45,25 @@ def remote_local_host_port(config: dict[str, Any]) -> tuple[str, int]:
     return host, port
 
 
-def remote_local_token(config: dict[str, Any]) -> str:
-    return str(remote_local_config(config).get("token") or "")
+def remote_local_app_id(config: dict[str, Any]) -> str:
+    return str(remote_local_config(config).get("appId") or "")
+
+
+def remote_local_app_key(config: dict[str, Any]) -> str:
+    return str(remote_local_config(config).get("appKey") or "")
+
+
+def remote_server_app_id(config: dict[str, Any]) -> str:
+    return str(remote_server_config(config).get("appId") or "")
+
+
+def remote_server_app_key(config: dict[str, Any]) -> str:
+    return str(remote_server_config(config).get("appKey") or "")
 
 
 def remote_local_url(config: dict[str, Any], include_token: bool = False) -> str:
     host, port = remote_local_host_port(config)
-    url = f"http://{host}:{port}/"
-    token = remote_local_token(config)
-    if include_token and token:
-        return f"{url}?token={quote(token)}"
-    return url
+    return f"http://{host}:{port}/"
 
 
 def remote_server_url(config: dict[str, Any]) -> str:
@@ -98,35 +109,81 @@ def _utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def token_matches(expected: str, provided: str | None) -> bool:
-    value = (provided or "").strip()
-    expected = (expected or "").strip()
-    return bool(value) and bool(expected) and secrets.compare_digest(value, expected)
+AUTH_MAX_AGE_SECONDS = 24 * 60 * 60
+AUTH_FUTURE_SKEW_SECONDS = 5 * 60
 
 
-def bearer_token(authorization: str | None) -> str | None:
-    if not authorization:
-        return None
-    scheme, _, value = authorization.partition(" ")
-    if scheme.lower() != "bearer":
-        return None
-    return value.strip() or None
+@dataclass(frozen=True)
+class AuthResult:
+    ok: bool
+    error: str = ""
+    message: str = ""
 
 
-def auth_token_matches(expected: str, token: str | None = None, authorization: str | None = None) -> bool:
-    return token_matches(expected, token) or token_matches(expected, bearer_token(authorization))
+AUTH_OK = AuthResult(True)
 
 
-async def websocket_auth_token(websocket: Any) -> str | None:
+def new_app_id() -> str:
+    return f"app_{secrets.token_urlsafe(9)}"
+
+
+def new_app_key() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _auth_message(app_id: str, timestamp: str, scope: str) -> bytes:
+    return f"v1\nappId={app_id}\ntimestamp={timestamp}\nscope={scope}".encode()
+
+
+def make_auth_signature(app_key: str, app_id: str, timestamp: str, scope: str) -> str:
+    digest = hmac.new(app_key.encode(), _auth_message(app_id, timestamp, scope), hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def build_auth_payload(app_id: str, app_key: str, scope: str, timestamp: int | None = None) -> dict[str, str]:
+    timestamp_value = str(int(time.time() if timestamp is None else timestamp))
+    return {
+        "appId": app_id,
+        "timestamp": timestamp_value,
+        "sign": make_auth_signature(app_key, app_id, timestamp_value, scope),
+    }
+
+
+def auth_headers(payload: dict[str, str]) -> dict[str, str]:
+    return {
+        "X-CCODE-App-Id": payload.get("appId", ""),
+        "X-CCODE-Timestamp": payload.get("timestamp", ""),
+        "X-CCODE-Sign": payload.get("sign", ""),
+    }
+
+
+def auth_query(payload: dict[str, str]) -> str:
+    return urlencode({"appId": payload.get("appId", ""), "timestamp": payload.get("timestamp", ""), "sign": payload.get("sign", "")})
+
+
+def verify_auth_payload(expected_app_id: str, expected_app_key: str, payload: dict[str, Any], scope: str) -> AuthResult:
+    app_id = str(payload.get("appId") or "").strip()
+    timestamp = str(payload.get("timestamp") or "").strip()
+    sign = str(payload.get("sign") or "").strip()
+    expected_app_id = (expected_app_id or "").strip()
+    expected_app_key = (expected_app_key or "").strip()
+    if not expected_app_id or not expected_app_key or not app_id or not timestamp or not sign:
+        return AuthResult(False, "auth_required", "Authentication required.")
+    if not hmac.compare_digest(expected_app_id, app_id):
+        return AuthResult(False, "auth_failed", "Authentication failed.")
     try:
-        raw = await asyncio.wait_for(websocket.receive_text(), timeout=10)
-        payload = json.loads(raw)
-    except (asyncio.TimeoutError, json.JSONDecodeError):
-        return None
-    if payload.get("type") != "auth":
-        return None
-    token = payload.get("token")
-    return token if isinstance(token, str) else None
+        timestamp_int = int(timestamp)
+    except ValueError:
+        return AuthResult(False, "auth_required", "Invalid authentication timestamp.")
+    age = int(time.time()) - timestamp_int
+    if age > AUTH_MAX_AGE_SECONDS:
+        return AuthResult(False, "reauth_required", "Authentication expired, please re-authenticate.")
+    if age < -AUTH_FUTURE_SKEW_SECONDS:
+        return AuthResult(False, "auth_failed", "Authentication timestamp is invalid.")
+    expected_sign = make_auth_signature(expected_app_key, app_id, timestamp, scope)
+    if not hmac.compare_digest(expected_sign, sign):
+        return AuthResult(False, "auth_failed", "Authentication failed.")
+    return AUTH_OK
 
 
 _ASSET_TEXT_CACHE: dict[str, str] = {}
