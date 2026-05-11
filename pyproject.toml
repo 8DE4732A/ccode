@@ -1,6 +1,6 @@
 [project]
 name = "ccoding"
-version = "0.2.4"
+version = "0.2.5"
 description = "Curses-based Claude Code launcher"
 readme = "README.md"
 license = { file = "LICENSE" }
