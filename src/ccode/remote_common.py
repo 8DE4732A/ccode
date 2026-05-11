@@ -3,11 +3,20 @@ from __future__ import annotations
 import base64
 import contextlib
 import datetime as dt
-import fcntl
 import hashlib
 import hmac
 import os
 import re
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
 import secrets
 import time
 from dataclasses import dataclass
@@ -209,11 +218,24 @@ def web_asset_text(name: str) -> str:
 def file_lock(path: Any) -> Iterator[None]:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with path.open("a+") as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        if msvcrt is not None:
+            if path.stat().st_size == 0:
+                lock_file.write("0")
+                lock_file.flush()
+            lock_file.seek(0)
+            getattr(msvcrt, "locking")(lock_file.fileno(), getattr(msvcrt, "LK_LOCK"), 1)
+        elif fcntl is not None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        else:
+            raise OSError("file locking is not supported on this platform")
         try:
             yield
         finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            if msvcrt is not None:
+                lock_file.seek(0)
+                getattr(msvcrt, "locking")(lock_file.fileno(), getattr(msvcrt, "LK_UNLCK"), 1)
+            elif fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def rotate_log(path: Any, max_bytes: int, backups: int) -> None:
