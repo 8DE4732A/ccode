@@ -246,7 +246,7 @@ def ensure_tmux_session(config: dict[str, Any], args: list[str], session_name: s
 
     env = build_env(config, masked=False)
     result = subprocess.run(
-        ["tmux", "new-session", "-d", "-s", session_name, *build_claude_command(args)],
+        ["tmux", "new-session", "-d", "-s", session_name, *build_claude_command(config, args)],
         env=env,
         capture_output=True,
         text=True,

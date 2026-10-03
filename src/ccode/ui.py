@@ -38,6 +38,7 @@ from .remote_common import remote_display_url, remote_local_host_port, remote_mo
 # 配置界面 field 类型标识
 _FIELD_BASE_URL = "base_url"
 _FIELD_API_KEY = "api_key"
+_FIELD_SKIP_PERMISSIONS = "skip_permissions"
 _FIELD_REMOTE_ENABLED = "remote.enabled"
 _FIELD_REMOTE_MODE = "remote.mode"
 _FIELD_REMOTE_LOCAL_HOST = "remote.local.host"
@@ -151,6 +152,7 @@ class CursesApp:
             _FIELD_REMOTE_SESSION_NAME,
             _FIELD_REMOTE_REUSE_SESSION,
         ]
+        fields.append(_FIELD_SKIP_PERMISSIONS)
         for k in toggles:
             fields.append(f"{_FIELD_TOGGLE}{k}")
         fields.append(_FIELD_ADD_TOGGLE)
@@ -399,6 +401,18 @@ class CursesApp:
             y += 1
 
         y += 1
+        addstr_safe(stdscr, y, x, "─── Launch  [space/enter]=toggle ──────────────────────────────────────")
+        y += 1
+        launch_items = [
+            (_FIELD_SKIP_PERMISSIONS, "SKIP PERMISSIONS:", "on" if self.config.get("skip_permissions") else "off"),
+        ]
+        for field, label, display in launch_items:
+            is_focused = focused == field
+            addstr_safe(stdscr, y, x, label)
+            addstr_safe(stdscr, y, x + 22, display, curses.A_REVERSE if is_focused else 0)
+            y += 1
+
+        y += 1
         addstr_safe(stdscr, y, x, "─── Toggles (env vars)  [n]=new  [d]=delete  [ESC]=save & back ────────")
         y += 1
 
@@ -558,6 +572,12 @@ class CursesApp:
             save_config(self.config)
             self._cancel_add()
             self.config_focus_index = min(len(fields) - 1, self.config_focus_index + 1)
+            return
+
+        if focused == _FIELD_SKIP_PERMISSIONS:
+            if key in (curses.KEY_ENTER, 10, 13, ord(" ")):
+                self.config["skip_permissions"] = not bool(self.config.get("skip_permissions"))
+                save_config(self.config)
             return
 
         if focused in (_FIELD_REMOTE_ENABLED, _FIELD_REMOTE_REUSE_SESSION, _FIELD_REMOTE_SERVER_AUTO_CONNECT):

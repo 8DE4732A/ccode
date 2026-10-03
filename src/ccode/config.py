@@ -91,6 +91,7 @@ def default_config() -> dict[str, Any]:
             "haiku": {"owned_by": None, "id": None},
         },
         "toggles": DEFAULT_TOGGLES.copy(),
+        "skip_permissions": False,
         "remote": copy.deepcopy(DEFAULT_REMOTE),
     }
 
@@ -222,6 +223,10 @@ def load_config() -> dict[str, Any]:
                     new_toggles[k] = v
         if new_toggles:
             config["toggles"] = new_toggles
+
+    skip_permissions = data.get("skip_permissions")
+    if isinstance(skip_permissions, bool):
+        config["skip_permissions"] = skip_permissions
 
     config["remote"] = normalize_remote(data.get("remote"))
 

@@ -125,8 +125,15 @@ def validate_launch_requirements(config: dict[str, Any]) -> str | None:
     return None
 
 
-def build_claude_command(args: list[str]) -> list[str]:
-    return ["claude", *args]
+SKIP_PERMISSIONS_FLAG = "--allow-dangerously-skip-permissions"
+
+
+def build_claude_command(config: dict[str, Any], args: list[str]) -> list[str]:
+    command = ["claude", *args]
+    # args 透传自用户命令行，可能已手动携带该 flag，去重避免重复传参
+    if config.get("skip_permissions") and SKIP_PERMISSIONS_FLAG not in command:
+        command.append(SKIP_PERMISSIONS_FLAG)
+    return command
 
 
 def launch_claude(config: dict[str, Any], args: list[str]) -> str | None:
@@ -136,7 +143,7 @@ def launch_claude(config: dict[str, Any], args: list[str]) -> str | None:
         return "Missing base URL or API key."
     env = build_env(config, masked=False)
     try:
-        subprocess.run(build_claude_command(args), check=True, env=env)
+        subprocess.run(build_claude_command(config, args), check=True, env=env)
     except FileNotFoundError:
         return "Could not find 'claude' on PATH."
     except subprocess.CalledProcessError as exc:
