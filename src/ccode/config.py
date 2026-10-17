@@ -11,12 +11,20 @@ from typing import Any
 CONFIG_DIR = Path.home() / ".ccode"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 DEFAULT_BASE_URL = "http://127.0.0.1:8317"
-MODEL_KEYS = ("opus", "sonnet", "haiku")
-MODEL_LABELS = {
-    "opus": "OPUS",
-    "sonnet": "SONNET",
-    "haiku": "HAIKU",
+# 模型 key 及其对应的环境变量，dict 顺序即主界面展示顺序。
+# auto 对应客户端 auto mode 分类器模型，其余沿用 ANTHROPIC_DEFAULT_<KEY>_MODEL。
+MODEL_ENV_VARS = {
+    "opus": "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "sonnet": "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "haiku": "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "auto": "CLAUDE_CODE_AUTO_MODE_MODEL",
 }
+MODEL_KEYS = tuple(MODEL_ENV_VARS)
+MODEL_LABELS = {key: key.upper() for key in MODEL_KEYS}
+
+# auto 为可选项，其余模型启动时必选
+OPTIONAL_MODEL_KEYS = ("auto",)
+REQUIRED_MODEL_KEYS = tuple(key for key in MODEL_KEYS if key not in OPTIONAL_MODEL_KEYS)
 
 # toggles 的默认值：值统一用字符串存储
 DEFAULT_TOGGLES: dict[str, str] = {
@@ -85,11 +93,7 @@ def default_config() -> dict[str, Any]:
     return {
         "base_url": DEFAULT_BASE_URL,
         "api_key": "",
-        "models": {
-            "opus": {"owned_by": None, "id": None},
-            "sonnet": {"owned_by": None, "id": None},
-            "haiku": {"owned_by": None, "id": None},
-        },
+        "models": {key: {"owned_by": None, "id": None} for key in MODEL_KEYS},
         "toggles": DEFAULT_TOGGLES.copy(),
         "skip_permissions": False,
         "remote": copy.deepcopy(DEFAULT_REMOTE),

@@ -464,7 +464,10 @@ class CursesApp:
                     addstr_safe(stdscr, y, x + 2, "[Tab] select  [Enter] confirm")
                     y += 1
                 else:
-                    addstr_safe(stdscr, y, x + 2, "[Tab] autocomplete from 217 known env vars")
+                    addstr_safe(
+                        stdscr, y, x + 2,
+                        f"[Tab] autocomplete from {len(env_schema_keys())} known env vars",
+                    )
                     y += 1
                 # schema description hint（精确匹配时显示）
                 sel_key = matches[self._complete_idx] if matches and 0 <= self._complete_idx < len(matches) else self._add_key

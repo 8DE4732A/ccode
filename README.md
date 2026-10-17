@@ -143,7 +143,8 @@ uv sync --extra remote          # 同时安装 client/server 依赖
   "models": {
     "opus": {"owned_by": null, "id": null},
     "sonnet": {"owned_by": null, "id": null},
-    "haiku": {"owned_by": null, "id": null}
+    "haiku": {"owned_by": null, "id": null},
+    "auto": {"owned_by": null, "id": null}
   },
   "toggles": {
     "CLAUDE_CODE_ENABLE_TELEMETRY": "0",

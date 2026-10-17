@@ -7,7 +7,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from .config import MODEL_KEYS, mask_secret
+from .config import MODEL_ENV_VARS, MODEL_KEYS, REQUIRED_MODEL_KEYS, mask_secret
 
 
 def _truncate_body(text: str, max_len: int = 200) -> str:
@@ -107,7 +107,7 @@ def build_env(config: dict[str, Any], masked: bool = False) -> dict[str, str]:
         entry = config["models"].get(key, {})
         model_id = entry.get("id")
         if model_id:
-            env[f"ANTHROPIC_DEFAULT_{key.upper()}_MODEL"] = model_id
+            env[MODEL_ENV_VARS[key]] = model_id
     for key, value in config.get("toggles", {}).items():
         env[key] = str(value)
     return env
@@ -118,7 +118,7 @@ def validate_launch_requirements(config: dict[str, Any]) -> str | None:
     api_key = config.get("api_key", "").strip()
     if not base_url or not api_key:
         return "Base URL and API key are required."
-    for key in MODEL_KEYS:
+    for key in REQUIRED_MODEL_KEYS:
         entry = config["models"].get(key, {})
         if not entry.get("owned_by") or not entry.get("id"):
             return "OPUS, SONNET, and HAIKU selections are required."
