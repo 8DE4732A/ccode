@@ -89,11 +89,20 @@ def env_schema_enum(key: str) -> list[str]:
     return load_env_schema().get(key, {}).get("enum", [])
 
 
+def model_entry(
+    owner: str | None = None,
+    model_id: str | None = None,
+    one_m: bool = False,
+) -> dict[str, Any]:
+    """模型条目的唯一构造入口，新增字段时只需改这里。"""
+    return {"owned_by": owner, "id": model_id, "1m": one_m}
+
+
 def default_config() -> dict[str, Any]:
     return {
         "base_url": DEFAULT_BASE_URL,
         "api_key": "",
-        "models": {key: {"owned_by": None, "id": None} for key in MODEL_KEYS},
+        "models": {key: model_entry() for key in MODEL_KEYS},
         "toggles": DEFAULT_TOGGLES.copy(),
         "skip_permissions": False,
         "remote": copy.deepcopy(DEFAULT_REMOTE),
@@ -208,10 +217,12 @@ def load_config() -> dict[str, Any]:
             if isinstance(entry, dict):
                 owned_by = entry.get("owned_by")
                 model_id = entry.get("id")
-                config["models"][key]["owned_by"] = (
-                    owned_by if isinstance(owned_by, str) else None
+                one_m = entry.get("1m")
+                config["models"][key] = model_entry(
+                    owned_by if isinstance(owned_by, str) else None,
+                    model_id if isinstance(model_id, str) else None,
+                    one_m if isinstance(one_m, bool) else False,
                 )
-                config["models"][key]["id"] = model_id if isinstance(model_id, str) else None
 
     toggles = data.get("toggles")
     if isinstance(toggles, dict):
@@ -251,16 +262,29 @@ def mask_secret(value: str) -> str:
     return f"{value[:4]}...{value[-4:]}"
 
 
+def _model_entry(
+    config: dict[str, Any],
+    key: str,
+    owner: str | None,
+    model_id: str | None,
+) -> dict[str, Any]:
+    """重建模型条目，保留已有的 1M 上下文开关状态。"""
+    existing = config["models"].get(key, {})
+    return model_entry(owner if owner else None, model_id, bool(existing.get("1m")))
+
+
 def update_model_owner(config: dict[str, Any], key: str, owner: str | None) -> None:
-    config["models"][key] = {"owned_by": owner if owner else None, "id": None}
+    config["models"][key] = _model_entry(config, key, owner, None)
     save_config(config)
 
 
 def update_model_id(
     config: dict[str, Any], key: str, owner: str | None, model_id: str | None
 ) -> None:
-    if owner and model_id:
-        config["models"][key] = {"owned_by": owner, "id": model_id}
-    else:
-        config["models"][key] = {"owned_by": owner if owner else None, "id": None}
+    config["models"][key] = _model_entry(config, key, owner, model_id)
+    save_config(config)
+
+
+def update_model_1m(config: dict[str, Any], key: str, enabled: bool) -> None:
+    config["models"][key]["1m"] = bool(enabled)
     save_config(config)

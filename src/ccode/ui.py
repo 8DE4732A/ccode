@@ -23,6 +23,7 @@ from .config import (
     load_config,
     mask_secret,
     save_config,
+    update_model_1m,
     update_model_id,
     update_model_owner,
 )
@@ -55,6 +56,16 @@ _FIELD_REMOTE_SESSION_NAME = "remote.session_name"
 _FIELD_REMOTE_REUSE_SESSION = "remote.reuse_session"
 _FIELD_TOGGLE = "toggle:"      # 前缀 + key
 _FIELD_ADD_TOGGLE = "__add__"  # 新增行
+
+# 主界面可聚焦字段索引，渲染与按键逻辑共用
+_MAIN_FIELD_OWNER = 0
+_MAIN_FIELD_MODEL = 1
+_MAIN_FIELD_ONE_M = 2
+_MAIN_FIELD_COUNT = 3
+
+# 主界面 1M 上下文开关的显示文本（实际注入环境变量时用官方小写 [1m]）
+_ONE_M_LABEL = "[1M]"
+_ONE_M_GAP = "    "
 
 
 def addstr_safe(stdscr: curses.window, y: int, x: int, text: str, attr: int = 0) -> None:
@@ -213,7 +224,7 @@ class CursesApp:
             pair_id += 1
 
     def render_logo(self, stdscr: curses.window, start_y: int) -> None:
-        kwargs = dict(
+        kwargs: dict[str, Any] = dict(
             stdscr=stdscr,
             lines=self.logo_lines,
             start_y=start_y,
@@ -221,9 +232,7 @@ class CursesApp:
             use_color=self.use_color,
             color_pairs=self.color_pairs,
         )
-        if self.render_style == "wave":
-            render_style_wave(**kwargs)
-        elif self.render_style == "pulse":
+        if self.render_style == "pulse":
             render_style_pulse(**kwargs)
         elif self.render_style == "glitch":
             render_style_glitch(**kwargs)
@@ -262,6 +271,12 @@ class CursesApp:
     # ------------------------------------------------------------------
     # Main screen
     # ------------------------------------------------------------------
+    def _cell_attr(self, row: int, field: int) -> int:
+        """返回主界面单元格的显示属性：聚焦时反色。"""
+        if row == self.main_focus_row and field == self.main_focus_field:
+            return curses.A_REVERSE
+        return 0
+
     def render_main(self, stdscr: curses.window) -> None:
         try:
             curses.curs_set(0)
@@ -272,15 +287,17 @@ class CursesApp:
         self.render_logo(stdscr, start_y)
         y = start_y + len(self.logo_lines) + 1
         _height, width = stdscr.getmaxyx()
-        rows: list[tuple[str, str, str, int]] = []
+        rows: list[tuple[str, str, str, str]] = []
         max_row = 0
         for key in MODEL_KEYS:
+            entry = self.config["models"].get(key, {})
             label = f"{MODEL_LABELS[key]}:".ljust(8)
-            owner = self.config["models"].get(key, {}).get("owned_by") or "owned_by"
-            model_id = self.config["models"].get(key, {}).get("id") or "model_id"
-            row_width = len(label) + 1 + len(owner) + len(" | ") + len(model_id)
+            owner = entry.get("owned_by") or "owned_by"
+            model_id = entry.get("id") or "model_id"
+            one_m = f"{_ONE_M_LABEL} {'on' if entry.get('1m') else 'off'}"
+            row_width = len(f"{label} {owner} | {model_id}{_ONE_M_GAP}{one_m}")
             max_row = max(max_row, row_width)
-            rows.append((label, owner, model_id, row_width))
+            rows.append((label, owner, model_id, one_m))
         remote = self.config.get("remote", {})
         mode = remote_mode(self.config)
         if self.remote_enabled:
@@ -294,28 +311,20 @@ class CursesApp:
         host, _port = remote_local_host_port(self.config)
         if mode == "local" and host == "0.0.0.0":
             remote_line += "  [warning: network exposed]"
-        hint = "enter to start, r remote on/off, c config, b refresh, a/d change model, q quit"
+        hint = "enter to start, c config, b refresh, a/d change, ←/→ field, r remote, q quit"
         content_width = max(max_row, len(remote_line), len(hint), len(self.status_message))
         x = max(2, (width - content_width) // 2)
-        for idx, (label, owner, model_id, _row_width) in enumerate(rows):
+        for idx, (label, owner, model_id, one_m) in enumerate(rows):
             addstr_safe(stdscr, y, x, label)
             owner_x = x + len(label) + 1
-            owner_attr = (
-                curses.A_REVERSE
-                if (idx == self.main_focus_row and self.main_focus_field == 0)
-                else 0
-            )
-            addstr_safe(stdscr, y, owner_x, owner, owner_attr)
+            addstr_safe(stdscr, y, owner_x, owner, self._cell_attr(idx, _MAIN_FIELD_OWNER))
             sep = " | "
             sep_x = owner_x + len(owner)
             addstr_safe(stdscr, y, sep_x, sep)
             model_x = sep_x + len(sep)
-            model_attr = (
-                curses.A_REVERSE
-                if (idx == self.main_focus_row and self.main_focus_field == 1)
-                else 0
-            )
-            addstr_safe(stdscr, y, model_x, model_id, model_attr)
+            addstr_safe(stdscr, y, model_x, model_id, self._cell_attr(idx, _MAIN_FIELD_MODEL))
+            one_m_x = model_x + len(model_id) + len(_ONE_M_GAP)
+            addstr_safe(stdscr, y, one_m_x, one_m, self._cell_attr(idx, _MAIN_FIELD_ONE_M))
             y += 1
         y += 1
         addstr_safe(stdscr, y, x, remote_line)
@@ -859,10 +868,12 @@ class CursesApp:
             self.main_focus_row = min(len(MODEL_KEYS) - 1, self.main_focus_row + 1)
             return
         if key == curses.KEY_LEFT:
-            self.main_focus_field = 0
+            self.main_focus_field = max(0, self.main_focus_field - 1)
             return
         if key == curses.KEY_RIGHT:
-            self.main_focus_field = 1
+            self.main_focus_field = min(
+                _MAIN_FIELD_COUNT - 1, self.main_focus_field + 1
+            )
             return
         if key in (ord("["), ord("a")):
             self.cycle_main_option(-1)
@@ -883,6 +894,12 @@ class CursesApp:
         if key in (ord("q"), ord("Q")):
             self.should_exit = True
             return
+        if (
+            key in (curses.KEY_ENTER, 10, 13, ord(" "))
+            and self.main_focus_field == _MAIN_FIELD_ONE_M
+        ):
+            self.toggle_main_1m()
+            return
         if key in (curses.KEY_ENTER, 10, 13):
             self.status_message = ""
             error = validate_launch_requirements(self.config)
@@ -898,9 +915,17 @@ class CursesApp:
             else:
                 self.should_exit = True
 
+    def toggle_main_1m(self) -> None:
+        key = MODEL_KEYS[self.main_focus_row]
+        entry = self.config["models"].get(key, {})
+        update_model_1m(self.config, key, not bool(entry.get("1m")))
+
     def cycle_main_option(self, direction: int) -> None:
         key = MODEL_KEYS[self.main_focus_row]
-        if self.main_focus_field == 0:
+        if self.main_focus_field == _MAIN_FIELD_ONE_M:
+            self.toggle_main_1m()
+            return
+        if self.main_focus_field == _MAIN_FIELD_OWNER:
             owners = owner_options(self.models_by_owner)
             if not owners:
                 return

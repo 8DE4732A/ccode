@@ -9,6 +9,9 @@ from typing import Any
 
 from .config import MODEL_ENV_VARS, MODEL_KEYS, REQUIRED_MODEL_KEYS, mask_secret
 
+# Claude Code 识别小写的 1M 上下文变体后缀（如 claude-sonnet-4-5[1m]）
+MODEL_1M_SUFFIX = "[1m]"
+
 
 def _truncate_body(text: str, max_len: int = 200) -> str:
     return f"{text[:max_len]}..." if len(text) > max_len else text
@@ -69,7 +72,9 @@ def validate_models(config: dict[str, Any], models: list[dict[str, str]]) -> boo
         model_id = entry.get("id")
         if not owned_by or not model_id or (owned_by, model_id) not in valid:
             if entry.get("owned_by") is not None or entry.get("id") is not None:
-                config["models"][key] = {"owned_by": None, "id": None}
+                # 只清空选择字段，保留 1m 等模型级偏好和未来新增字段
+                entry["owned_by"] = None
+                entry["id"] = None
                 changed = True
     return changed
 
@@ -107,6 +112,9 @@ def build_env(config: dict[str, Any], masked: bool = False) -> dict[str, str]:
         entry = config["models"].get(key, {})
         model_id = entry.get("id")
         if model_id:
+            # 用户开启 1M 开关时追加官方小写后缀；模型 id 本身已带后缀则不重复追加。
+            if entry.get("1m") and not model_id.lower().endswith(MODEL_1M_SUFFIX):
+                model_id = f"{model_id}{MODEL_1M_SUFFIX}"
             env[MODEL_ENV_VARS[key]] = model_id
     for key, value in config.get("toggles", {}).items():
         env[key] = str(value)
